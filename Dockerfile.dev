@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+
+# Image with the full toolchain: go, golangci-lint and delve. For hacking on the
+# server, not for running it. Bind-mount the source and:
+#
+#   docker compose --profile dev run --rm jirrabit-mcp-dev
+#
+FROM golang:1.27-alpine
+
+RUN apk add --no-cache git make bash
+
+RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
+    && go install github.com/go-delve/delve/cmd/dlv@latest
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+ENV CGO_ENABLED=0
+
+ENTRYPOINT []
+CMD ["go", "run", "./cmd/jirrabit-mcp/"]

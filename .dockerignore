@@ -1,0 +1,12 @@
+# Build artifacts — the image builds from source.
+bin/
+jirrabit-mcp
+jirrabit-mcp.exe
+
+# Local config and VCS
+.env
+.git/
+.gitignore
+
+# Docs are not needed to build
+*.md

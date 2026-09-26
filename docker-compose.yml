@@ -1,0 +1,40 @@
+services:
+  jirrabit-mcp:
+    build: .
+    image: jirrabit-mcp:latest
+    restart: unless-stopped
+    env_file:
+      # Every setting is optional here. With JIRRABIT_URL and JIRRABIT_API_KEY
+      # unset, this is a shared server: each caller names its own instance with
+      # the instanceUrl and apiKey tool arguments. Set both in .env to give
+      # callers a default instance and let them omit the arguments.
+      - path: .env
+        required: false
+    environment:
+      JIRRABIT_MCP_TRANSPORT: http
+      JIRRABIT_MCP_ADDR: ":8082"
+      JIRRABIT_MCP_PATH: /mcp
+    ports:
+      - "8082:8082"
+    extra_hosts:
+      # Lets a containerised server reach jirrabit on the Docker host via
+      # http://host.docker.internal:8000. Without this the name does not resolve
+      # on Linux, which is the usual reason a containerised MCP server "cannot
+      # find" the app it is meant to proxy.
+      - "host.docker.internal:host-gateway"
+
+  # Toolchain image, for working on the server. `docker compose --profile dev
+  # run --rm jirrabit-mcp-dev` with the source bind-mounted.
+  jirrabit-mcp-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    volumes:
+      - .:/app
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
