@@ -59,9 +59,12 @@ func (d Deps) Register(s *server.MCPServer, opts Options) {
 	registerLinkTools(s, d)
 	registerWatchTools(s, d)
 	registerIssueWriteTools(s, d)
+	registerSprintTools(s, d)
+	registerSavedFilterTools(s, d)
 
 	if opts.EnableDelete {
 		registerDeleteTools(s, d)
+		registerSprintDeleteTools(s, d)
 	}
 	if opts.EnableManage {
 		registerManageTools(s, d)

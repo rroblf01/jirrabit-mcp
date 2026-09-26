@@ -48,3 +48,13 @@ func resolveProjectKey(ctx context.Context, client *jira.Client, id string) (str
 		Path:       "projects/",
 	}
 }
+
+// projectKey accepts either a project key or a numeric id and returns the key.
+// Most write endpoints address a project by key, while responses and JQL talk
+// about ids, so a caller that has one should not have to care.
+func projectKey(ctx context.Context, client *jira.Client, keyOrID string) (string, error) {
+	if isProjectKey(keyOrID) {
+		return keyOrID, nil
+	}
+	return resolveProjectKey(ctx, client, keyOrID)
+}

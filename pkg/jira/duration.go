@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ParseJiraDuration converts a Jira time-tracking string into whole minutes.
@@ -65,4 +66,15 @@ func ParseJiraDuration(value string) (int, error) {
 		return 0, fmt.Errorf("duration must be greater than 0, got %q", value)
 	}
 	return total, nil
+}
+
+// ParseISODate validates a YYYY-MM-DD date. jirrabit parses these with
+// Python's date.fromisoformat, which rejects anything else, so checking here
+// turns an opaque 400 into a tool error that says what was wrong.
+func ParseISODate(value string) (time.Time, error) {
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%q is not a YYYY-MM-DD date", value)
+	}
+	return parsed, nil
 }

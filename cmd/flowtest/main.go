@@ -326,6 +326,61 @@ func run(serverPath string, timeout time.Duration) error {
 
 	// The opt-in tools are checked both ways: absent without their flag,
 	// present and working with it. Registering is not the same as working.
+	fmt.Println("\n[7b] sprints, saved filters and users")
+	sprints, err := call(ctx, session, "listJiraSprints", map[string]any{
+		"projectKeyOrId": projectKey,
+	})
+	check("listJiraSprints", err == nil && strings.Contains(sprints, "values"),
+		errStr(err)+" "+truncate(sprints, 160))
+	firstSprint := firstID(sprints)
+	one, err := call(ctx, session, "getJiraSprint", map[string]any{"sprintId": firstSprint})
+	check("getJiraSprint", err == nil && strings.Contains(one, "name"),
+		errStr(err)+" "+truncate(one, 160))
+	_, err = call(ctx, session, "getJiraSprint", map[string]any{})
+	check("getJiraSprint needs an id", err != nil, "it was accepted")
+
+	createdSprint, err := call(ctx, session, "createJiraSprint", map[string]any{
+		"projectKey": projectKey, "name": "flowtest sprint",
+		"goal": "created by flowtest", "startDate": "2026-10-01", "endDate": "2026-10-14",
+	})
+	check("createJiraSprint", err == nil && strings.Contains(createdSprint, "flowtest sprint"),
+		errStr(err)+" "+truncate(createdSprint, 160))
+	newSprintID := firstID(createdSprint)
+	check("the new sprint comes back as future", strings.Contains(createdSprint, `"status":"future"`),
+		truncate(createdSprint, 160))
+	updatedSprint, err := call(ctx, session, "updateJiraSprint", map[string]any{
+		"sprintId": newSprintID, "goal": "updated by flowtest",
+	})
+	check("updateJiraSprint", err == nil && strings.Contains(updatedSprint, "updated by flowtest"),
+		errStr(err)+" "+truncate(updatedSprint, 160))
+	afterSprint, _ := call(ctx, session, "getJiraSprint", map[string]any{"sprintId": newSprintID})
+	check("the sprint update is visible on re-read",
+		strings.Contains(afterSprint, "updated by flowtest"), truncate(afterSprint, 160))
+	_, err = call(ctx, session, "createJiraSprint", map[string]any{
+		"projectKey": projectKey, "name": "x", "startDate": "not-a-date",
+	})
+	check("a malformed startDate is rejected before the request", err != nil, "it was accepted")
+	_, err = call(ctx, session, "createJiraSprint", map[string]any{"projectKey": projectKey})
+	check("createJiraSprint needs a name", err != nil, "it was accepted")
+	_, err = call(ctx, session, "createJiraSprint", map[string]any{
+		"projectKey": "NOPROJECT", "name": "x",
+	})
+	check("creating a sprint in a missing project fails", err != nil, "it was accepted")
+
+	filters, err := call(ctx, session, "listJiraSavedFilters", nil)
+	check("listJiraSavedFilters", err == nil && strings.Contains(filters, "values"),
+		errStr(err)+" "+truncate(filters, 160))
+
+	user, err := call(ctx, session, "getJiraUser", map[string]any{"userIdOrKey": "alice_pm"})
+	check("getJiraUser by username", err == nil && strings.Contains(user, "alice_pm"),
+		errStr(err)+" "+truncate(user, 160))
+	byID, err2 := call(ctx, session, "getJiraUser", map[string]any{"userIdOrKey": "1"})
+	check("getJiraUser by numeric id", err2 == nil && strings.Contains(byID, "alice_pm"),
+		errStr(err2)+" "+truncate(byID, 160))
+	_, err = call(ctx, session, "getJiraUser", map[string]any{"userIdOrKey": "nobody_at_all"})
+	check("getJiraUser on an unknown name explains itself", err != nil &&
+		strings.Contains(err.Error(), "no user named"), fmt.Sprint(err))
+
 	fmt.Println("\n[8] opt-in destructive tools")
 	// Assert against the flag actually in force, so the run is meaningful in
 	// both modes instead of only when the flags happen to be unset.
@@ -339,6 +394,16 @@ func run(serverPath string, timeout time.Duration) error {
 		check(fmt.Sprintf("%s is registered iff %s is on", tool, flag), registered == want,
 			fmt.Sprintf("registered=%v but %s=%q", registered, flag, os.Getenv(flag)))
 	}
+	if names["deleteJiraIssue"] {
+		deletedSprint, err := call(ctx, session, "deleteJiraSprint", map[string]any{
+			"sprintId": newSprintID,
+		})
+		check("deleteJiraSprint", err == nil, errStr(err)+" "+truncate(deletedSprint, 120))
+		_, err = call(ctx, session, "getJiraSprint", map[string]any{"sprintId": newSprintID})
+		check("the deleted sprint is really gone", err != nil && strings.Contains(err.Error(), "404"),
+			fmt.Sprint(err))
+	}
+
 	if names["deleteJiraIssue"] && names["updateJiraProject"] {
 		fmt.Println("\n[8b] the same tools, exercised because their flags are on")
 		doomed, err := call(ctx, session, "createJiraIssue", map[string]any{
@@ -496,6 +561,10 @@ func firstID(payload string) int {
 	var decoded map[string]any
 	if json.Unmarshal([]byte(payload), &decoded) != nil {
 		return 0
+	}
+	// A single resource is a bare object; a list is wrapped in values/items.
+	if _, ok := decoded["id"]; ok {
+		decoded = map[string]any{"values": []any{decoded}}
 	}
 	rows, _ := decoded["values"].([]any)
 	if len(rows) == 0 {

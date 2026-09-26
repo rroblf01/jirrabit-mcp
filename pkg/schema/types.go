@@ -183,3 +183,45 @@ type TransitionIssueArgs struct {
 	StatusID     int    `json:"statusId" jsonschema:"Numeric id of the destination status. Resolve it with listJiraStatuses, or pick a state name like Done and let the server look it up"`
 	StatusName   string `json:"statusName,omitempty" jsonschema:"Destination status by name, case-insensitive, e.g. 'In Progress'. An alternative to statusId when the name is easier to come by"`
 }
+
+// --- sprints ---------------------------------------------------------------
+
+// SprintArgs is the input of the read-only sprint tools.
+type SprintArgs struct {
+	Target
+	ProjectKeyOrID string `json:"projectKeyOrId,omitempty" jsonschema:"Project key the sprints belong to. Required for listJiraSprints, ignored by getJiraSprint"`
+	SprintID       int    `json:"sprintId,omitempty" jsonschema:"Numeric sprint id, for getJiraSprint"`
+}
+
+// CreateSprintArgs is the input of createJiraSprint.
+type CreateSprintArgs struct {
+	Target
+	ProjectKeyOrID string `json:"projectKey" jsonschema:"Key of the project the sprint belongs to, e.g. WEB"`
+	Name           string `json:"name" jsonschema:"Sprint name, e.g. 'Sprint 14 — Checkout'"`
+	Goal           string `json:"goal,omitempty" jsonschema:"What this sprint is for"`
+	StartDate      string `json:"startDate,omitempty" jsonschema:"Start date as YYYY-MM-DD"`
+	EndDate        string `json:"endDate,omitempty" jsonschema:"End date as YYYY-MM-DD"`
+}
+
+// UpdateSprintArgs is the input of updateJiraSprint.
+type UpdateSprintArgs struct {
+	Target
+	SprintID  int     `json:"sprintId" jsonschema:"Numeric id of the sprint to update"`
+	Name      *string `json:"name,omitempty" jsonschema:"New sprint name"`
+	Goal      *string `json:"goal,omitempty" jsonschema:"New sprint goal"`
+	StartDate *string `json:"startDate,omitempty" jsonschema:"New start date, YYYY-MM-DD. Empty string clears it"`
+	EndDate   *string `json:"endDate,omitempty" jsonschema:"New end date, YYYY-MM-DD. Empty string clears it"`
+}
+
+// --- saved filters and users ------------------------------------------------
+
+// ListSavedFiltersArgs is the input of listJiraSavedFilters.
+type ListSavedFiltersArgs struct {
+	Target
+}
+
+// GetUserArgs is the input of getJiraUser.
+type GetUserArgs struct {
+	Target
+	UserIDOrKey string `json:"userIdOrKey" jsonschema:"Numeric user id or username, e.g. 'bob_dev'"`
+}
