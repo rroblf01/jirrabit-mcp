@@ -1,0 +1,11 @@
+# Build artifacts
+/bin/
+/jirrabit-mcp
+/jirrabit-mcp.exe
+
+# Local configuration. `.env.example` is tracked; `.env` is not.
+.env
+
+# Editor / OS noise
+.DS_Store
+*.swp
