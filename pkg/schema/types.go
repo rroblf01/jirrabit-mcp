@@ -157,6 +157,12 @@ type CreateLinkArgs struct {
 	Comment         string `json:"comment,omitempty" jsonschema:"Optional note describing the link"`
 }
 
+// GetIssueLinksArgs is the input of getJiraIssueLinks.
+type GetIssueLinksArgs struct {
+	Target
+	IssueIDOrKey string `json:"issueIdOrKey" jsonschema:"Issue ID or key to read links from, e.g. WEB-1"`
+}
+
 // WatchIssueArgs is the input of watchJiraIssue. A link is directional, so
 // Watching says which side of it this issue sits on.
 type WatchIssueArgs struct {

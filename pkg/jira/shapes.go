@@ -1,6 +1,9 @@
 package jira
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // Shaper converts jirrabit's DTOs into the payload shapes a Jira-trained agent
 // expects. It holds the base URL so it can populate each resource's `self`.
@@ -349,4 +352,69 @@ func formatDuration(minutes int) string {
 	default:
 		return fmt.Sprintf("%dm", mins)
 	}
+}
+
+// --- issue links ----------------------------------------------------------
+
+// LinkResource is a Jira issue link. Jira names the two ends outwardIssue and
+// inwardIssue and identifies each by key; jirrabit's API now returns keys too,
+// so this is a rename rather than a lookup. The numeric ids are carried
+// alongside because the API exposes them and a client may want them.
+type LinkResource struct {
+	ID             string       `json:"id"`
+	Self           string       `json:"self"`
+	Type           LinkTypeName `json:"type"`
+	OutwardIssue   LinkIssueRef `json:"outwardIssue"`
+	InwardIssue    LinkIssueRef `json:"inwardIssue"`
+	OutwardIssueID int          `json:"outwardIssueId,omitempty"`
+	InwardIssueID  int          `json:"inwardIssueId,omitempty"`
+	CreatedAt      string       `json:"createdAt,omitempty"`
+}
+
+// LinkTypeName is Jira's nested spelling of a link type: an object, not a bare
+// string.
+type LinkTypeName struct {
+	Name string `json:"name"`
+}
+
+// LinkIssueRef is one end of a link. Only the key is filled in: the API does
+// not return the other end's fields, and inventing a partial issue object
+// would be worse than saying less.
+type LinkIssueRef struct {
+	Key string `json:"key"`
+}
+
+// Link is the API's payload for one link.
+type Link struct {
+	ID        int    `json:"id"`
+	Type      string `json:"type"`
+	Source    string `json:"source"`
+	Target    string `json:"target"`
+	SourceID  int    `json:"sourceId"`
+	TargetID  int    `json:"targetId"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// Link renders one link in Jira's shape, with an absolute self URL built from
+// the instance this call resolved to.
+func (s *Shaper) Link(l Link) LinkResource {
+	return LinkResource{
+		ID:             strconv.Itoa(l.ID),
+		Self:           fmt.Sprintf("%s/api/v1/issues/%s/links/", s.baseURL, l.Source),
+		Type:           LinkTypeName{Name: l.Type},
+		OutwardIssue:   LinkIssueRef{Key: l.Source},
+		InwardIssue:    LinkIssueRef{Key: l.Target},
+		OutwardIssueID: l.SourceID,
+		InwardIssueID:  l.TargetID,
+		CreatedAt:      l.CreatedAt,
+	}
+}
+
+// Links renders a list, preserving order.
+func (s *Shaper) Links(items []Link) []LinkResource {
+	out := make([]LinkResource, 0, len(items))
+	for _, item := range items {
+		out = append(out, s.Link(item))
+	}
+	return out
 }

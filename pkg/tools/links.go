@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
 )
 
@@ -33,6 +34,16 @@ func registerLinkTools(s *server.MCPServer, d Deps) {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithInputSchema[schema.CreateLinkArgs](),
 	), createJiraIssueLink(d))
+
+	s.AddTool(mcp.NewTool("getJiraIssueLinks",
+		mcp.WithDescription("List the links on an issue, in both directions. Each link names the other end, so this is how you confirm a createJiraIssueLink landed or find what an issue is related to."),
+		mcp.WithTitleAnnotation("Get issue links"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithInputSchema[schema.GetIssueLinksArgs](),
+	), getJiraIssueLinks(d))
 }
 
 func listJiraIssueLinkTypes(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -59,7 +70,7 @@ func createJiraIssueLink(d Deps) func(ctx context.Context, req mcp.CallToolReque
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		client, _, err := d.target(ctx, args)
+		client, shaper, err := d.target(ctx, args)
 		if err != nil {
 			return toolError(err)
 		}
@@ -80,28 +91,37 @@ func createJiraIssueLink(d Deps) func(ctx context.Context, req mcp.CallToolReque
 			payload["comment"] = args.Comment
 		}
 
-		var created linkDTO
+		var created jira.Link
 		if err := client.Post(ctx, path, payload, &created); err != nil {
 			return toolError(err)
 		}
-		// A relative path is not a useful `self`, and the source/target come
-		// back as numeric ids rather than keys. The shaper knows which instance
-		// this call resolved to, so the link points at the right deployment.
-		return jsonResult(map[string]any{
-			"self":   fmt.Sprintf("%s/api/v1/%s", client.BaseURL(), path),
-			"id":     created.ID,
-			"type":   created.Type,
-			"source": created.Source,
-			"target": created.Target,
-		})
+		return jsonResult(shaper.Link(created))
 	}
 }
 
-// linkDTO mirrors the API's link payload. jirrabit returns numeric ids here
-// rather than issue keys, so an agent is told which ids it got.
-type linkDTO struct {
-	ID     int    `json:"id"`
-	Type   string `json:"type"`
-	Source int    `json:"source"`
-	Target int    `json:"target"`
+func getJiraIssueLinks(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.GetIssueLinksArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if args.IssueIDOrKey == "" {
+			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
+		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		log.Printf("[jirrabit-mcp getJiraIssueLinks] %s", args.IssueIDOrKey)
+
+		path := fmt.Sprintf("issues/%s/links/", url.PathEscape(args.IssueIDOrKey))
+		var links []jira.Link
+		if err := client.Get(ctx, path, &links); err != nil {
+			return toolError(err)
+		}
+		return jsonResult(map[string]any{
+			"issueKey": args.IssueIDOrKey,
+			"values":   shaper.Links(links),
+		})
+	}
 }

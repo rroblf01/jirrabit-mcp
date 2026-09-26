@@ -257,9 +257,19 @@ func run(serverPath string, timeout time.Duration) error {
 		"linkTypeName": "relates_to", "outwardIssueKey": key, "inwardIssueKey": other,
 	})
 	check("createJiraIssueLink", err == nil, errStr(err))
-	check("createJiraIssueLink returns the link", strings.Contains(link, "relates_to") &&
-		strings.Contains(link, "source") && strings.Contains(link, "target"),
-		truncate(link, 160))
+	// Jira names the ends outwardIssue/inwardIssue and identifies each by key.
+	// The API used to hand back bare numeric ids here, which an agent cannot act
+	// on: there is no way to turn 31 back into DEMO-19.
+	check("the link is in Jira's shape", strings.Contains(link, "outwardIssue") &&
+		strings.Contains(link, "inwardIssue") && strings.Contains(link, `"name":"relates_to"`),
+		truncate(link, 200))
+	check("both ends are issue keys", strings.Contains(link, `"key":"`+key+`"`) &&
+		strings.Contains(link, `"key":"`+other+`"`), truncate(link, 200))
+	links, err := call(ctx, session, "getJiraIssueLinks", map[string]any{"issueIdOrKey": key})
+	check("getJiraIssueLinks reads it back", err == nil && strings.Contains(links, other),
+		errStr(err)+" "+truncate(links, 200))
+	check("the read-back is keyed too", strings.Contains(links, `"outwardIssue"`),
+		truncate(links, 200))
 
 	for _, watching := range []bool{true, false} {
 		if _, err := call(ctx, session, "watchJiraIssue", map[string]any{
