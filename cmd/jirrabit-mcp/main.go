@@ -187,7 +187,7 @@ func serveHTTP(srv *server.MCPServer, addr, path string) error {
 
 	errs := make(chan error, 1)
 	go func() {
-		log.Printf("[%s] ready on http://%s%s", serverName, addr, path)
+		log.Printf("[%s] ready on %s%s", serverName, displayAddr(addr), path)
 		// Start reports http.ErrServerClosed after Shutdown; that is the
 		// expected path, not a failure.
 		if err := httpSrv.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -240,4 +240,14 @@ func durationEnv(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+// displayAddr renders a listen address for humans. ":8082" has no host part, and
+// printing "http://:8082/mcp" reads like a broken URL rather than the wildcard
+// bind it actually is.
+func displayAddr(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "http://0.0.0.0" + addr
+	}
+	return "http://" + addr
 }
