@@ -129,7 +129,7 @@ cannot, so project names are not leaked.
 
 ## Available tools
 
-Always on — 17 tools:
+Always on — 23 tools:
 
 | Tool | jirrabit endpoint |
 |---|---|
@@ -146,6 +146,13 @@ Always on — 17 tools:
 | `addOrEditJiraIssueWorklog` | `POST /api/v1/issues/{key}/worklogs/` (create only) |
 | `listJiraIssueLinkTypes` | `GET /api/v1/link-types/` |
 | `createJiraIssueLink` | `POST /api/v1/issues/{key}/links/` |
+| `getJiraIssueLinks` | `GET /api/v1/issues/{key}/links/` |
+| `listJiraSprints` | `GET /api/v1/projects/{key}/sprints/` |
+| `getJiraSprint` | `GET /api/v1/sprints/{id}/` |
+| `createJiraSprint` | `POST /api/v1/projects/{key}/sprints/` |
+| `updateJiraSprint` | `PATCH /api/v1/sprints/{id}/` |
+| `listJiraSavedFilters` | `GET /api/v1/filters/` |
+| `getJiraUser` | `GET /api/v1/users/{id}/` or `GET /api/v1/users/search/?query=` |
 | `watchJiraIssue` | `POST`/`DELETE /api/v1/issues/{key}/watchers/` |
 | `listJiraStatuses` | `GET /api/v1/statuses/` |
 | `listJiraPriorities` | `GET /api/v1/priorities/` |
@@ -160,6 +167,7 @@ Opt-in:
 | Tool | Enabled by |
 |---|---|
 | `deleteJiraIssue` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraSprint` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `updateJiraProject` | `JIRRABIT_MCP_ENABLE_MANAGE` |
 
 Still missing, because jirrabit exposes no endpoint for them: changelogs, boards,
@@ -167,14 +175,12 @@ versions, components, entity properties, attachments, and editing an existing
 worklog. They will appear as the API grows; see the tool surface in
 [AGENTS.md](AGENTS.md).
 
-### One known divergence
+### One known gap
 
-`createJiraIssueLink` returns jirrabit's link payload, which carries
-`source`/`target` as **numeric ids**. Jira returns keyed issue objects
-(`outwardIssue`/`inwardIssue`). Both ends are identifiable from the `self` URL,
-but an agent that reads the ids as keys will be confused. Fixing it means
-shaping the link response, which needs a decision about whether the API or this
-server should resolve the keys.
+`LinkOut.created_by` is still a numeric user id while `source` and `target` are
+keys. It is left as it is because changing it would break a second field for no
+gain, but it is the one identifier in the payload that a caller cannot act on.
+`getJiraUser` is the tool that turns it into a name.
 
 ## Verifying a deployment
 
@@ -189,10 +195,10 @@ go run ./cmd/flowtest -phantoms-only -server ./bin/jirrabit-mcp
 # End to end against a real jirrabit. Creates one issue, so use a scratch one.
 JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/smoke -server ./bin/jirrabit-mcp
 
-# Everything smoke does, plus 47 assertions about response shapes, the
+# Everything smoke does, plus 64 assertions about response shapes, the
 # write/read round trip, the error paths, multi-tenant isolation and the opt-in
 # gates. Add JIRRABIT_MCP_ENABLE_DELETE=1 JIRRABIT_MCP_ENABLE_MANAGE=1 to
-# exercise the destructive tools too (54 checks).
+# exercise the destructive tools too (73 checks).
 JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/flowtest -server ./bin/jirrabit-mcp
 
 # Two instances over one connection, with project isolation and the

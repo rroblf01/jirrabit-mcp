@@ -78,6 +78,8 @@ cmd/jirrabit-mcp/main.go   # entrypoint: env parsing, transport selection, tool 
 cmd/smoke/                 # end-to-end check: drives the server as a real MCP client
 cmd/flowtest/              # every tool's response shape, the error paths, and a
                            # check that the prose names no unregistered tool
+pkg/tools/sprints.go       # sprint read/create/update, delete behind the flag
+pkg/tools/filters.go       # saved filters and single-user lookup
 cmd/multitenancy/          # proves two instances can be served over one connection
 internal/probe/            # lists a server's registered tools over stdio
 pkg/jira/client.go         # HTTP client for jirrabit's /api/v1/, bearer auth, retries
@@ -121,6 +123,12 @@ from.
 - **Delete and project-management tools are opt-in**, gated by
   `JIRRABIT_MCP_ENABLE_DELETE` / `JIRRABIT_MCP_ENABLE_MANAGE`, mirroring the
   reference server's behaviour. Visibility only — jirrabit still authorises.
+- **Two tools that look like gaps are not.** `getJiraUser` is not a second
+  `getJiraCurrentUser`: that answers "who am I", this answers "who is this
+  person", which is the question behind resolving an assignee id. And
+  `updateJiraSprint` does not close a sprint, because jirrabit's close carries
+  unfinished issues to another sprint and no endpoint does only that; its
+  description says so rather than letting an agent assume.
 - **The prose is part of the interface.** A tool named in the server
   instructions or in another tool's description that is not registered makes an
   agent call `transitionJiraIssue`, get "tool not found", and stop. It already
