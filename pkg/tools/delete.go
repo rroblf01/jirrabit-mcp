@@ -3,10 +3,13 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
 )
 
 // registerDeleteTools wires the destructive tools. They are only registered when
@@ -26,12 +29,22 @@ func registerDeleteTools(s *server.MCPServer, d Deps) {
 
 func deleteJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var target schema.Target
+		if err := req.BindArguments(&target); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, target)
+		if err != nil {
+			return toolError(err)
+		}
 		issueKey := req.GetString("issueIdOrKey", "")
 		if issueKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
 		}
+		log.Printf("[jirrabit-mcp deleteJiraIssue] %s on %s", issueKey, client.BaseURL())
+
 		path := fmt.Sprintf("issues/%s/", url.PathEscape(issueKey))
-		if err := d.Client.Delete(ctx, path, nil); err != nil {
+		if err := client.Delete(ctx, path, nil); err != nil {
 			return toolError(err)
 		}
 		return jsonResult(map[string]any{

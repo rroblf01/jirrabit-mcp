@@ -23,16 +23,25 @@ No Makefile. `go build` / `go vet` / `go test` are the whole toolchain.
 ## Configuration
 
 All environment variables, no config file. See `.env.example` for the annotated
-list. The two required ones:
+list.
+
+**This server is multi-tenant by default.** One deployed jirrabit-mcp serves any
+number of jirrabit instances: every tool takes `instanceUrl` and `apiKey`, and
+the caller supplies the credentials for their own instance. The server holds no
+credentials of its own.
 
 | Variable | Meaning |
 |---|---|
-| `JIRRABIT_URL` | Base URL of the jirrabit instance, no trailing slash |
-| `JIRRABIT_API_KEY` | API key from jirrabit's API keys page, sent as a bearer token |
+| `JIRRABIT_URL` | Optional *default* instance base URL |
+| `JIRRABIT_API_KEY` | Optional *default* instance API key |
 
-A missing required variable is a **startup error**. There is deliberately no
-default URL and no "try localhost and carry on" behaviour — a silent fallback
-would point the agent at the wrong instance, or at nothing.
+`JIRRABIT_URL` and `JIRRABIT_API_KEY` must be set **together or not at all** —
+one without the other is a startup error, because a URL with no key can only mean
+"use a key I was never given". Setting both is the convenience case for a
+personal single-instance server; leaving both unset is the shared case.
+
+A key supplied without an instance is rejected rather than applied to the
+default, so one user's credentials can never be sent to another user's data.
 
 ## Connecting a client
 
@@ -66,19 +75,29 @@ The client then connects to `http://<host>:8082/mcp`.
 
 ```
 cmd/jirrabit-mcp/main.go   # entrypoint: env parsing, transport selection, tool registration
+cmd/smoke/                 # end-to-end check: drives the server as a real MCP client
+cmd/multitenancy/          # proves two instances can be served over one connection
+internal/probe/            # lists a server's registered tools over stdio
 pkg/jira/client.go         # HTTP client for jirrabit's /api/v1/, bearer auth, retries
+pkg/jira/pool.go           # per-call instance resolution, client cache, SSRF guard
+pkg/jira/validate.go       # confirms a (url, key) pair really addresses a jirrabit
 pkg/jira/errors.go         # maps jirrabit's {"detail": …} envelope onto MCP tool errors
+pkg/jira/dto.go            # jirrabit's wire types
 pkg/jira/shapes.go         # jirrabit DTOs -> Jira-shaped {id, key, self, fields:{…}}
 pkg/jira/adf.go            # plain text <-> Atlassian Document Format
 pkg/jira/cursor.go         # jirrabit's page/size <-> the opaque nextPageToken agents expect
-pkg/schema/types.go        # typed argument structs for tools with complex input schemas
+pkg/jira/duration.go       # Jira's "2h 30m" -> minutes
+pkg/schema/types.go        # typed argument structs; every one embeds schema.Target
 pkg/tools/*.go             # one file per Atlassian tool group (issues, comments, …)
 ```
 
-Request flow: a tool handler reads its arguments → `pkg/jira` client builds the
-`/api/v1/` request → jirrabit's django-ninja returns its own DTO → `shapes.go`
-re-shapes it into the Jira payload the agent expects → result is returned as
-MCP text content.
+Request flow: a tool handler binds its arguments → `Deps.target` resolves
+`instanceUrl`/`apiKey` through the pool to a client for that instance, validating
+it on first sight → the client builds the `/api/v1/` request → jirrabit's
+django-ninja returns its own DTO → `shapes.go` re-shapes it into the Jira payload
+the agent expects → returned as MCP text content. The `Shaper` is built per call
+from the resolved client, so `self` links point at the instance the data came
+from.
 
 ## Design decisions that are not obvious from the code
 
@@ -94,6 +113,9 @@ MCP text content.
 - **`nextPageToken` is synthesized.** jirrabit paginates with `page`/`size`;
   agents expect a cursor. `cursor.go` encodes the position in an opaque token so
   the cursor-shaped contract holds even though the backend is offset-based.
+- **Clients are cached, keys are not logged.** The pool keys entries on
+  `url|sha256(key)`, never the secret itself, and the cache key is swept on a TTL
+  so a rotated or forgotten key stops being used.
 - **Delete and project-management tools are opt-in**, gated by
   `JIRRABIT_MCP_ENABLE_DELETE` / `JIRRABIT_MCP_ENABLE_MANAGE`, mirroring the
   reference server's behaviour. Visibility only — jirrabit still authorises.
@@ -116,8 +138,23 @@ MCP text content.
 - The `docs/` and `AGENTS.md` files are tracked. Do **not** add a `*.md` line to
   `.gitignore`.
 
-## Testing
+## Verification
 
-`go test ./...` covers the pure functions — ADF conversion, cursor encoding and
-shape conversion — which is where silent corruption hides. Tool handlers are
-exercised end to end by connecting a real MCP client to a real jirrabit.
+```bash
+go test ./...                                   # pure functions and the pool/SSRF guard
+go vet ./...
+
+JIRRABIT_URL=… JIRRABIT_API_KEY=… \
+  go run ./cmd/smoke -server ./bin/jirrabit-mcp  # end-to-end against a real jirrabit
+
+go run ./cmd/multitenancy -server ./bin/jirrabit-mcp \
+  -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
+```
+
+`smoke` and `multitenancy` create data, so point them at a scratch instance.
+`multitenancy` deliberately runs with no default instance configured, which is
+the shared-server case.
+
+Unit tests cover the pure functions — ADF conversion, cursor encoding, duration
+parsing, shape conversion — plus the pool's validation and caching. Those are
+where silent corruption hides; the two commands cover the rest.

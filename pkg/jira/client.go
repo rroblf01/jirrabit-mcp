@@ -113,6 +113,13 @@ func NewClient(cfg Config) (*Client, error) {
 // BaseURL returns the configured instance root, without a trailing slash.
 func (c *Client) BaseURL() string { return c.baseURL }
 
+// CloseIdleConnections releases the pooled TCP connections this client holds.
+// A Client is reused across many tool calls, so this is only called when the
+// pool decides to drop it.
+func (c *Client) CloseIdleConnections() {
+	c.httpClient.CloseIdleConnections()
+}
+
 // retryable reports whether a status code is worth retrying. Client errors are
 // decisions, not hiccups: a 400, 401, 403, 404 or 429 must surface immediately,
 // otherwise an agent waits out a delay for an answer that will never change.

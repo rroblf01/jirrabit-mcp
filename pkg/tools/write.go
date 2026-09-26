@@ -74,6 +74,11 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		if args.ProjectKey == "" {
 			return mcp.NewToolResultError("projectKey is required, e.g. WEB"), nil
 		}
@@ -91,13 +96,13 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 			due := args.DueDate
 			payload.DueDate = &due
 		}
-		if id, err := resolveIssueType(ctx, d, args.IssueTypeName, args.IssueTypeID); err != nil {
+		if id, err := resolveIssueType(ctx, client, args.IssueTypeName, args.IssueTypeID); err != nil {
 			return toolError(err)
 		} else {
 			payload.IssueTypeID = id
 		}
 		if args.Assignee != "" {
-			id, err := resolveAssignee(ctx, d, args.ProjectKey, args.Assignee)
+			id, err := resolveAssignee(ctx, client, args.ProjectKey, args.Assignee)
 			if err != nil {
 				return toolError(err)
 			}
@@ -106,10 +111,10 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 
 		var issue jira.Issue
 		path := fmt.Sprintf("projects/%s/issues/", url.PathEscape(args.ProjectKey))
-		if err := d.Client.Post(ctx, path, payload, &issue); err != nil {
+		if err := client.Post(ctx, path, payload, &issue); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.Issue(issue))
+		return jsonResult(shaper.Issue(issue))
 	}
 }
 
@@ -130,13 +135,18 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
 		}
 		log.Printf("[jirrabit-mcp editJiraIssue] %s", args.IssueIDOrKey)
 
 		var current jira.Issue
-		if err := d.Client.Get(ctx, fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey)), &current); err != nil {
+		if err := client.Get(ctx, fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey)), &current); err != nil {
 			return toolError(err)
 		}
 
@@ -157,7 +167,7 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 					"Clearing an assignee is not supported by jirrabit's API yet. Assign the issue to someone else instead.",
 				), nil
 			}
-			id, err := resolveAssignee(ctx, d, current.Project, *args.Assignee)
+			id, err := resolveAssignee(ctx, client, current.Project, *args.Assignee)
 			if err != nil {
 				return toolError(err)
 			}
@@ -166,10 +176,10 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 
 		var updated jira.Issue
 		path := fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey))
-		if err := d.Client.Patch(ctx, path, payload, &updated); err != nil {
+		if err := client.Patch(ctx, path, payload, &updated); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.Issue(updated))
+		return jsonResult(shaper.Issue(updated))
 	}
 }
 
@@ -178,6 +188,11 @@ func addOrEditJiraIssueComment(d Deps) func(ctx context.Context, req mcp.CallToo
 		var args schema.AddOrEditCommentArgs
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
 		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
@@ -198,10 +213,10 @@ func addOrEditJiraIssueComment(d Deps) func(ctx context.Context, req mcp.CallToo
 
 		log.Printf("[jirrabit-mcp addOrEditJiraIssueComment] create on %s", args.IssueIDOrKey)
 		var comment jira.Comment
-		if err := d.Client.Post(ctx, issuePath+"comments/", map[string]string{"body": args.Body}, &comment); err != nil {
+		if err := client.Post(ctx, issuePath+"comments/", map[string]string{"body": args.Body}, &comment); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.Comment(comment))
+		return jsonResult(shaper.Comment(comment))
 	}
 }
 
@@ -210,6 +225,11 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 		var args schema.AddOrEditWorkLogArgs
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
 		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
@@ -234,10 +254,10 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 		if args.Comment != "" {
 			payload["comment"] = args.Comment
 		}
-		if err := d.Client.Post(ctx, path, payload, &worklog); err != nil {
+		if err := client.Post(ctx, path, payload, &worklog); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.WorkLog(worklog))
+		return jsonResult(shaper.WorkLog(worklog))
 	}
 }
 

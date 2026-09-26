@@ -31,6 +31,11 @@ func updateJiraProject(d Deps) func(ctx context.Context, req mcp.CallToolRequest
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		if args.ProjectKeyOrID == "" {
 			return mcp.NewToolResultError("projectKeyOrId is required, e.g. WEB"), nil
 		}
@@ -44,7 +49,7 @@ func updateJiraProject(d Deps) func(ctx context.Context, req mcp.CallToolRequest
 		// translated before it can be used as a path segment.
 		key := args.ProjectKeyOrID
 		if !isProjectKey(args.ProjectKeyOrID) {
-			resolved, err := resolveProjectKey(ctx, d, args.ProjectKeyOrID)
+			resolved, err := resolveProjectKey(ctx, client, args.ProjectKeyOrID)
 			if err != nil {
 				return toolError(err)
 			}
@@ -63,9 +68,9 @@ func updateJiraProject(d Deps) func(ctx context.Context, req mcp.CallToolRequest
 		}
 
 		var project jira.Project
-		if err := d.Client.Patch(ctx, "projects/"+key+"/", payload, &project); err != nil {
+		if err := client.Patch(ctx, "projects/"+key+"/", payload, &project); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.Project(project))
+		return jsonResult(shaper.Project(project))
 	}
 }

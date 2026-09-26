@@ -31,23 +31,32 @@ const serverName = "jirrabit-mcp"
 const serverVersion = "1.0.0"
 
 // instructions is what the server tells the client about itself. It is the
-// agent's only map of this instance, so it states the two facts an agent cannot
-// infer: the vocabulary is Jira's, and the data is jirrabit's.
-const instructions = `This server exposes a jirrabit instance — a self-hosted Jira-like
-tracker — using Atlassian's Jira tool names and payload shapes. Call these tools
-exactly as you would call the official Atlassian Jira MCP server.
+// agent's only map of this server, so it states the three things an agent cannot
+// infer: the vocabulary is Jira's, the data is jirrabit's, and the instance is
+// named per call.
+const instructions = `This server exposes one or more jirrabit instances — a self-hosted
+Jira-like tracker — using Atlassian's Jira tool names and payload shapes. Call
+these tools exactly as you would call the official Atlassian Jira MCP server.
+
+Choosing an instance. Every tool accepts instanceUrl and apiKey. Supply them to
+work against a particular jirrabit; omit both to use this server's default
+instance, which is what a single-user deployment configures. The apiKey comes
+from that instance's own API keys page. An apiKey without an instanceUrl is
+rejected rather than applied to the default, so one user's credentials are never
+sent to another user's data.
 
 What differs from real Jira:
-  - jirrabit is single-tenant, so cloudId is accepted and ignored.
+  - cloudId is accepted and ignored; instanceUrl plays that role.
   - Descriptions and comments are stored as Markdown; they are returned as
     Atlassian Document Format and you send plain text.
   - Pagination is offset-based underneath, presented as an opaque nextPageToken.
     Pass that token back to continue; do not parse it.
-  - Availability varies. Some Jira tools are not registered because jirrabit
-    has no endpoint behind them yet, and a few report plainly that the operation
-    is unsupported. Treat such a message as "not available here", not as a bug.
+  - Availability varies. Some Jira tools are not registered because jirrabit has
+    no endpoint behind them yet, and a few report plainly that the operation is
+    unsupported. Treat such a message as "not available here", not as a bug.
 
-Start with listJiraProjects to learn what exists, then getJiraIssue by key.`
+Start by calling getJiraCurrentUser. If you have no instance configured, it will
+tell you so, and you can then supply instanceUrl and apiKey explicitly.`
 
 func main() {
 	transport := flag.String("transport", envOr("JIRRABIT_MCP_TRANSPORT", "stdio"),
@@ -70,16 +79,25 @@ func run(transport, addr, path string) error {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 
-	client, err := jira.NewClient(jira.Config{
-		BaseURL:    os.Getenv("JIRRABIT_URL"),
-		APIKey:     os.Getenv("JIRRABIT_API_KEY"),
-		Timeout:    durationEnv("JIRRABIT_TIMEOUT", jira.DefaultTimeout),
-		MaxRetries: intEnv("JIRRABIT_MAX_RETRIES", jira.DefaultMaxRetries),
-		UserAgent:  serverName + "/" + serverVersion,
-	})
-	if err != nil {
-		return err
+	timeout := durationEnv("JIRRABIT_TIMEOUT", jira.DefaultTimeout)
+	retries := intEnv("JIRRABIT_MAX_RETRIES", jira.DefaultMaxRetries)
+
+	// The default instance is optional: a shared deployment supplies the
+	// instance per call, and a personal one sets it here for convenience. The
+	// pool only falls back to it when a call names no instance.
+	defaultURL := strings.TrimSpace(os.Getenv("JIRRABIT_URL"))
+	defaultKey := strings.TrimSpace(os.Getenv("JIRRABIT_API_KEY"))
+	if defaultURL != "" && defaultKey == "" {
+		return errors.New("JIRRABIT_URL is set but JIRRABIT_API_KEY is not; supply both, or neither to require callers to name their own instance")
 	}
+
+	pool := jira.NewPool(jira.PoolOptions{
+		DefaultBaseURL: defaultURL,
+		DefaultAPIKey:  defaultKey,
+		Timeout:        timeout,
+		MaxRetries:     retries,
+		Validator:      jira.ValidateJiraTarget,
+	})
 
 	srv := server.NewMCPServer(
 		"Jirrabit MCP Server",
@@ -90,13 +108,21 @@ func run(transport, addr, path string) error {
 		server.WithInstructions(instructions),
 	)
 
-	deps := tools.Deps{Client: client, Shaper: jira.NewShaper(client.BaseURL())}
-	deps.Register(srv, tools.Options{
+	tools.Deps{Pool: pool}.Register(srv, tools.Options{
 		EnableDelete: tools.BoolEnv("JIRRABIT_MCP_ENABLE_DELETE"),
 		EnableManage: tools.BoolEnv("JIRRABIT_MCP_ENABLE_MANAGE"),
 	})
 
-	log.Printf("[%s] configured against %s", serverName, client.BaseURL())
+	if defaultURL != "" {
+		log.Printf("[%s] default instance: %s", serverName, defaultURL)
+	} else {
+		log.Printf("[%s] no default instance; callers must pass instanceUrl and apiKey", serverName)
+	}
+
+	// Drop clients for instances nobody has touched in a while, so a long-lived
+	// shared server does not hold sockets open to instances that are gone.
+	stopSweeper := startSweeper(pool)
+	defer stopSweeper()
 
 	switch strings.ToLower(strings.TrimSpace(transport)) {
 	case "stdio":
@@ -106,6 +132,26 @@ func run(transport, addr, path string) error {
 	default:
 		return fmt.Errorf("unknown transport %q: use stdio or http", transport)
 	}
+}
+
+// startSweeper runs pool.Sweep on a ticker for the life of the process. It only
+// matters for the HTTP transport, where the process outlives any single session;
+// on stdio the client owns the lifetime and an extra goroutine is noise.
+func startSweeper(pool *jira.Pool) func() {
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				pool.Sweep()
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 // serveStdio speaks MCP over stdin/stdout. The client owns the process, so a

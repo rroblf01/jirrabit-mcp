@@ -40,14 +40,14 @@ var errAmbiguousMatch = errors.New("ambiguous match")
 // An explicit id always wins. A name is matched case-insensitively. When neither
 // is given, nil is returned and jirrabit picks its default — which is why the
 // create tool reports which type it ended up with.
-func resolveIssueType(ctx context.Context, d Deps, name string, id *int) (*int, error) {
+func resolveIssueType(ctx context.Context, client *jira.Client, name string, id *int) (*int, error) {
 	if id != nil {
 		return id, nil
 	}
 	if name == "" {
 		return nil, nil
 	}
-	types, err := fetchIssueTypes(ctx, d)
+	types, err := fetchIssueTypes(ctx, client)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +69,8 @@ func resolveIssueType(ctx context.Context, d Deps, name string, id *int) (*int, 
 }
 
 // fetchIssueTypes returns every configured issue type.
-func fetchIssueTypes(ctx context.Context, d Deps) ([]issueTypeDTO, error) {
-	items, _, err := jira.List[issueTypeDTO](ctx, d.Client, "issue-types/?size=200")
+func fetchIssueTypes(ctx context.Context, client *jira.Client) ([]issueTypeDTO, error) {
+	items, _, err := jira.List[issueTypeDTO](ctx, client, "issue-types/?size=200")
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +81,10 @@ func fetchIssueTypes(ctx context.Context, d Deps) ([]issueTypeDTO, error) {
 // project membership. An exact username match is required; a partial match is
 // rejected rather than guessed, because assigning the wrong person is worse
 // than failing.
-func resolveAssignee(ctx context.Context, d Deps, projectKey, username string) (int, error) {
+func resolveAssignee(ctx context.Context, client *jira.Client, projectKey, username string) (int, error) {
 	query := url.Values{}
 	query.Set("query", username)
-	items, _, err := jira.List[userDTO](ctx, d.Client, "users/search/?"+query.Encode()+"&size=50")
+	items, _, err := jira.List[userDTO](ctx, client, "users/search/?"+query.Encode()+"&size=50")
 	if err != nil {
 		return 0, err
 	}

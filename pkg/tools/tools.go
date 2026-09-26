@@ -4,6 +4,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,11 +18,27 @@ import (
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 )
 
-// Deps is what every tool handler needs: a client for jirrabit's REST API and a
-// shaper for Jira payload conversion.
+// Deps is what every tool handler needs: a way to reach the instance a call
+// names, and to turn that instance's DTOs into Jira payloads.
+//
+// Resolution is per call, so one deployed server can serve many jirrabit
+// instances; the pool caches clients so that costs nothing in practice.
 type Deps struct {
-	Client *jira.Client
-	Shaper *jira.Shaper
+	Pool *jira.Pool
+}
+
+// target resolves the instance a call is about and returns a matching Shaper.
+// Handlers call this first and use the returned shaper rather than a shared one,
+// because `self` links must point at the instance the data came from.
+func (d Deps) target(ctx context.Context, args interface {
+	GetTarget() (string, string)
+}) (*jira.Client, *jira.Shaper, error) {
+	url, key := args.GetTarget()
+	client, err := d.Pool.Resolve(ctx, url, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, d.Pool.ShaperFor(client), nil
 }
 
 // Options toggles the tool groups that are off by default.

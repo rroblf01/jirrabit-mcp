@@ -27,8 +27,8 @@ func isProjectKey(value string) bool {
 
 // resolveProjectKey turns a numeric project id into its key, so a caller that
 // only has the id from a previous response can still address the project.
-func resolveProjectKey(ctx context.Context, d Deps, id string) (string, error) {
-	projects, _, err := jira.List[jira.Project](ctx, d.Client, "projects/?size=200")
+func resolveProjectKey(ctx context.Context, client *jira.Client, id string) (string, error) {
+	projects, _, err := jira.List[jira.Project](ctx, client, "projects/?size=200")
 	if err != nil {
 		return "", err
 	}

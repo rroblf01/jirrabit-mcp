@@ -37,7 +37,7 @@ func registerReadTools(s *server.MCPServer, d Deps) {
 	), listJiraProjects(d))
 
 	s.AddTool(mcp.NewTool("getJiraCurrentUser",
-		mcp.WithDescription("Details for the current Jira user, i.e. the owner of the API key this server was configured with."),
+		mcp.WithDescription("Details for the current Jira user, i.e. the owner of the API key in use."),
 		mcp.WithTitleAnnotation("Get current user"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -72,16 +72,20 @@ func getJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*m
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
 		}
-		log.Printf("[jirrabit-mcp getJiraIssue] %s", args.IssueIDOrKey)
+		log.Printf("[jirrabit-mcp getJiraIssue] %s on %s", args.IssueIDOrKey, client.BaseURL())
 
 		var issue jira.Issue
-		if err := d.Client.Get(ctx, fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey)), &issue); err != nil {
+		if err := client.Get(ctx, fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey)), &issue); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.Issue(issue))
+		return jsonResult(shaper.Issue(issue))
 	}
 }
 
@@ -91,34 +95,50 @@ func listJiraProjects(d Deps) func(ctx context.Context, req mcp.CallToolRequest)
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		page, err := resolvePage(args.StartAt, args.NextPageToken)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Printf("[jirrabit-mcp listJiraProjects] page=%d size=%d", page, clampSize(args.MaxResults))
+		size := clampSize(args.MaxResults)
+		log.Printf("[jirrabit-mcp listJiraProjects] %s page=%d size=%d", client.BaseURL(), page, size)
 
-		items, meta, err := jira.List[jira.Project](ctx, d.Client,
-			jira.WithPage("projects/", page, clampSize(args.MaxResults)))
+		items, meta, err := jira.List[jira.Project](ctx, client, jira.WithPage("projects/", page, size))
 		if err != nil {
 			return toolError(err)
 		}
 		return jsonResult(paged{
 			Count:         meta.Count,
 			StartAt:       page,
-			MaxResults:    clampSize(args.MaxResults),
+			MaxResults:    size,
 			NextPageToken: jira.NextToken(meta),
-			Values:        d.Shaper.Projects(items),
+			Values:        shaper.Projects(items),
 		})
 	}
 }
 
 func getJiraCurrentUser(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var user jira.User
-		if err := d.Client.Get(ctx, "me/", &user); err != nil {
+		// This tool binds no schema, so the target is read straight off the raw
+		// arguments rather than through a typed struct.
+		var target schema.Target
+		if err := req.BindArguments(&target); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, shaper, err := d.target(ctx, target)
+		if err != nil {
 			return toolError(err)
 		}
-		return jsonResult(d.Shaper.User(user))
+		log.Printf("[jirrabit-mcp getJiraCurrentUser] %s", client.BaseURL())
+
+		var user jira.User
+		if err := client.Get(ctx, "me/", &user); err != nil {
+			return toolError(err)
+		}
+		return jsonResult(shaper.User(user))
 	}
 }
 
@@ -128,6 +148,10 @@ func listJiraIssueComments(d Deps) func(ctx context.Context, req mcp.CallToolReq
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
 		}
@@ -135,19 +159,19 @@ func listJiraIssueComments(d Deps) func(ctx context.Context, req mcp.CallToolReq
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Printf("[jirrabit-mcp listJiraIssueComments] %s page=%d", args.IssueIDOrKey, page)
+		size := clampSize(args.MaxResults)
 
 		path := fmt.Sprintf("issues/%s/comments/", url.PathEscape(args.IssueIDOrKey))
-		items, meta, err := jira.List[jira.Comment](ctx, d.Client, jira.WithPage(path, page, clampSize(args.MaxResults)))
+		items, meta, err := jira.List[jira.Comment](ctx, client, jira.WithPage(path, page, size))
 		if err != nil {
 			return toolError(err)
 		}
 		return jsonResult(paged{
 			Count:         meta.Count,
 			StartAt:       page,
-			MaxResults:    clampSize(args.MaxResults),
+			MaxResults:    size,
 			NextPageToken: jira.NextToken(meta),
-			Values:        d.Shaper.Comments(items),
+			Values:        shaper.Comments(items),
 		})
 	}
 }
@@ -158,6 +182,10 @@ func listJiraIssueWorklogs(d Deps) func(ctx context.Context, req mcp.CallToolReq
 		if err := req.BindArguments(&args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
 		}
@@ -165,19 +193,19 @@ func listJiraIssueWorklogs(d Deps) func(ctx context.Context, req mcp.CallToolReq
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Printf("[jirrabit-mcp listJiraIssueWorklogs] %s page=%d", args.IssueIDOrKey, page)
+		size := clampSize(args.MaxResults)
 
 		path := fmt.Sprintf("issues/%s/worklogs/", url.PathEscape(args.IssueIDOrKey))
-		items, meta, err := jira.List[jira.WorkLog](ctx, d.Client, jira.WithPage(path, page, clampSize(args.MaxResults)))
+		items, meta, err := jira.List[jira.WorkLog](ctx, client, jira.WithPage(path, page, size))
 		if err != nil {
 			return toolError(err)
 		}
 		return jsonResult(paged{
 			Count:         meta.Count,
 			StartAt:       page,
-			MaxResults:    clampSize(args.MaxResults),
+			MaxResults:    size,
 			NextPageToken: jira.NextToken(meta),
-			Values:        d.Shaper.WorkLogs(items),
+			Values:        shaper.WorkLogs(items),
 		})
 	}
 }
