@@ -57,17 +57,6 @@ func registerIssueWriteTools(s *server.MCPServer, d Deps) {
 	), addOrEditJiraIssueWorklog(d))
 }
 
-// createIssuePayload is jirrabit's `IssueIn` shape. It takes numeric ids where
-// Jira takes names, so the tool resolves human-friendly input to ids first.
-type createIssuePayload struct {
-	Summary     string  `json:"summary"`
-	Description string  `json:"description,omitempty"`
-	IssueTypeID *int    `json:"issue_type_id,omitempty"`
-	AssigneeID  *int    `json:"assignee_id,omitempty"`
-	DueDate     *string `json:"due_date,omitempty"`
-	StoryPoints *int    `json:"story_points,omitempty"`
-}
-
 func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args schema.CreateIssueArgs
@@ -75,9 +64,15 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		client, shaper, err := d.target(ctx, args)
+		// Argument validation happens before the instance is resolved: a bad
+		// argument is a client mistake, and reporting it as a connection
+		// problem sends the caller looking in the wrong place.
+		extra, err := normaliseFields(args.Fields, map[string]bool{
+			"summary": true, "description": true, "story_points": true,
+			"due_date": true, "issue_type_id": true, "assignee_id": true,
+		})
 		if err != nil {
-			return toolError(err)
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		if args.ProjectKey == "" {
 			return mcp.NewToolResultError("projectKey is required, e.g. WEB"), nil
@@ -85,28 +80,41 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		if args.Summary == "" {
 			return mcp.NewToolResultError("summary is required"), nil
 		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
 		log.Printf("[jirrabit-mcp createJiraIssue] %s %q", args.ProjectKey, args.Summary)
 
-		payload := createIssuePayload{
-			Summary:     args.Summary,
-			Description: args.Description,
-			StoryPoints: args.StoryPoints,
+		// Built as a map rather than a struct so the free-form `fields` object
+		// can be merged in, and so a key that was not passed is simply absent:
+		// for a PATCH, "not sent" and "sent as empty" are different requests.
+		payload := map[string]any{"summary": args.Summary}
+		if args.Description != "" {
+			payload["description"] = args.Description
+		}
+		if args.StoryPoints != nil {
+			payload["story_points"] = *args.StoryPoints
 		}
 		if args.DueDate != "" {
-			due := args.DueDate
-			payload.DueDate = &due
+			payload["due_date"] = args.DueDate
 		}
-		if id, err := resolveIssueType(ctx, client, args.IssueTypeName, args.IssueTypeID); err != nil {
+		id, err := resolveIssueType(ctx, client, args.IssueTypeName, args.IssueTypeID)
+		if err != nil {
 			return toolError(err)
-		} else {
-			payload.IssueTypeID = id
+		}
+		if id != nil {
+			payload["issue_type_id"] = *id
 		}
 		if args.Assignee != "" {
-			id, err := resolveAssignee(ctx, client, args.ProjectKey, args.Assignee)
+			assignee, err := resolveAssignee(ctx, client, args.ProjectKey, args.Assignee)
 			if err != nil {
 				return toolError(err)
 			}
-			payload.AssigneeID = &id
+			payload["assignee_id"] = assignee
+		}
+		for key, value := range extra {
+			payload[key] = value
 		}
 
 		var issue jira.Issue
@@ -118,17 +126,6 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 	}
 }
 
-// patchIssuePayload is jirrabit's `IssuePatch` shape. Every field is a pointer
-// so that "not passed" and "passed as empty" stay distinguishable — a PATCH
-// that clears a due date is a different request from one that leaves it alone.
-type patchIssuePayload struct {
-	Summary     *string `json:"summary,omitempty"`
-	Description *string `json:"description,omitempty"`
-	AssigneeID  *int    `json:"assignee_id,omitempty"`
-	StoryPoints *int    `json:"story_points,omitempty"`
-	DueDate     *string `json:"due_date,omitempty"`
-}
-
 func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args schema.EditIssueArgs
@@ -136,12 +133,28 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		client, shaper, err := d.target(ctx, args)
+		// Validated before the instance is resolved, so an argument mistake is
+		// reported as an argument mistake.
+		extra, err := normaliseFields(args.Fields, map[string]bool{
+			"summary": true, "description": true, "story_points": true,
+			"due_date": true, "assignee_id": true,
+		})
 		if err != nil {
-			return toolError(err)
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if args.Assignee != nil && *args.Assignee == "" {
+			// jirrabit has no unassign convention in the API yet, so say so
+			// rather than silently leaving the assignee in place.
+			return mcp.NewToolResultError(
+				"Clearing an assignee is not supported by jirrabit's API yet. Assign the issue to someone else instead.",
+			), nil
 		}
 		if args.IssueIDOrKey == "" {
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
+		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
 		}
 		log.Printf("[jirrabit-mcp editJiraIssue] %s", args.IssueIDOrKey)
 
@@ -150,28 +163,31 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 			return toolError(err)
 		}
 
-		payload := patchIssuePayload{
-			Summary:     args.Summary,
-			Description: args.Description,
-			StoryPoints: args.StoryPoints,
+		// Only keys the caller actually set appear in the body. For a PATCH,
+		// an absent key and an empty one mean different things, so this cannot
+		// be a struct with zero values.
+		payload := map[string]any{}
+		if args.Summary != nil {
+			payload["summary"] = *args.Summary
+		}
+		if args.Description != nil {
+			payload["description"] = *args.Description
+		}
+		if args.StoryPoints != nil {
+			payload["story_points"] = *args.StoryPoints
 		}
 		if args.DueDate != nil {
-			due := *args.DueDate
-			payload.DueDate = &due
+			payload["due_date"] = *args.DueDate
 		}
 		if args.Assignee != nil {
-			if *args.Assignee == "" {
-				// jirrabit has no unassign convention in the API yet, so say so
-				// rather than silently leaving the assignee in place.
-				return mcp.NewToolResultError(
-					"Clearing an assignee is not supported by jirrabit's API yet. Assign the issue to someone else instead.",
-				), nil
-			}
 			id, err := resolveAssignee(ctx, client, current.Project, *args.Assignee)
 			if err != nil {
 				return toolError(err)
 			}
-			payload.AssigneeID = &id
+			payload["assignee_id"] = id
+		}
+		for key, value := range extra {
+			payload[key] = value
 		}
 
 		var updated jira.Issue

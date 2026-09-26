@@ -63,8 +63,7 @@ type EditIssueArgs struct {
 	Assignee     *string        `json:"assignee,omitempty" jsonschema:"New assignee username. Use an empty string to unassign"`
 	StoryPoints  *int           `json:"storyPoints,omitempty" jsonschema:"New story point estimate"`
 	DueDate      *string        `json:"dueDate,omitempty" jsonschema:"New due date as YYYY-MM-DD. Use an empty string to clear"`
-	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object"`
-	NotifyUsers  *bool          `json:"notifyUsers,omitempty" jsonschema:"Whether to notify watchers. Defaults to jirrabit's own behaviour"`
+	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, for ids with no named argument: statusId, priorityId, sprintId. A status change here is validated against the issue's workflow, and a disallowed one is rejected. An unrecognised key is an error rather than ignored"`
 }
 
 // --- comments --------------------------------------------------------------

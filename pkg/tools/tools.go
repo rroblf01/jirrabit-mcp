@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
+	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
 )
 
 // Deps is what every tool handler needs: a way to reach the instance a call
@@ -53,6 +54,7 @@ type Options struct {
 // Register wires every enabled tool group onto the MCP server.
 func (d Deps) Register(s *server.MCPServer, opts Options) {
 	registerReadTools(s, d)
+	registerMetadataTools(s, d)
 	registerSearchTools(s, d)
 	registerLinkTools(s, d)
 	registerWatchTools(s, d)
@@ -125,4 +127,15 @@ func BoolEnv(name string) bool {
 		return true
 	}
 	return false
+}
+
+// clientFor resolves the instance a call targets from raw arguments, for tools
+// whose only inputs are the instance selector.
+func (d Deps) clientFor(ctx context.Context, req mcp.CallToolRequest) (*jira.Client, error) {
+	var target schema.Target
+	if err := req.BindArguments(&target); err != nil {
+		return nil, err
+	}
+	client, _, err := d.target(ctx, target)
+	return client, err
 }

@@ -15,13 +15,6 @@ import (
 // are why jirrabit needs the small metadata endpoints they call
 // (GET /api/v1/issue-types/ and GET /api/v1/users/search/).
 
-// issueTypeDTO is the subset of jirrabit's issue-type metadata this adapter
-// uses.
-type issueTypeDTO struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-}
-
 // userDTO is the subset of jirrabit's user search results this adapter uses.
 type userDTO struct {
 	ID          int    `json:"id"`
