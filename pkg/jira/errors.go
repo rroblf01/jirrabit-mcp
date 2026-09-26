@@ -64,7 +64,7 @@ func parseErrorBody(body []byte) string {
 
 	// Validation errors: {"detail": [{"loc": ["body", "jql"], "msg": "..."}]}.
 	var problems []struct {
-		Loc []any `json:"loc"`
+		Loc []any  `json:"loc"`
 		Msg string `json:"msg"`
 	}
 	if err := json.Unmarshal(envelope.Detail, &problems); err == nil {

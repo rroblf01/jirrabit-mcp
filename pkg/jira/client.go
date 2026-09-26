@@ -268,12 +268,12 @@ func (c *Client) Delete(ctx context.Context, path string, out any) error {
 // `size`) rather than by cursor, so this adapter re-shapes it into the opaque
 // `nextPageToken` that Jira-trained agents expect. See cursor.go.
 type Page struct {
-	Count    int  `json:"count"`
-	Page     int  `json:"page"`
-	Size     int  `json:"size"`
-	Pages    int  `json:"pages"`
-	Next     *int `json:"next"`
-	Previous *int `json:"previous"`
+	Count    int               `json:"count"`
+	Page     int               `json:"page"`
+	Size     int               `json:"size"`
+	Pages    int               `json:"pages"`
+	Next     *int              `json:"next"`
+	Previous *int              `json:"previous"`
 	Items    []json.RawMessage `json:"items"`
 }
 

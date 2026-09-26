@@ -70,10 +70,10 @@ type Issue struct {
 	Assignee *string `json:"assignee"`
 	Reporter *string `json:"reporter"`
 	// StoryPoints is Jira's "customfield_10016".
-	StoryPoints       *int    `json:"story_points"`
-	DueDate           *string `json:"due_date"`
-	EstimateMinutes   *int    `json:"estimate_minutes"`
-	TimeSpentMinutes  int     `json:"time_spent_minutes"`
+	StoryPoints      *int    `json:"story_points"`
+	DueDate          *string `json:"due_date"`
+	EstimateMinutes  *int    `json:"estimate_minutes"`
+	TimeSpentMinutes int     `json:"time_spent_minutes"`
 
 	// Optional enrichment; see the note above.
 	Created        string   `json:"created"`
