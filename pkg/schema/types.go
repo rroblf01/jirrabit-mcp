@@ -164,3 +164,16 @@ type WatchIssueArgs struct {
 	IssueIDOrKey string `json:"issueIdOrKey" jsonschema:"Issue ID or key, e.g. WEB-1"`
 	IsWatching   *bool  `json:"isWatching,omitempty" jsonschema:"true to watch, false to unwatch. Defaults to true"`
 }
+
+// --- transitions -----------------------------------------------------------
+
+// TransitionIssueArgs is the input of transitionJiraIssue. It exists under
+// Atlassian's name because that is the name an agent reaches for when it wants
+// to move an issue, and the alternative — editJiraIssue with fields.statusId —
+// is discoverable only if the agent already knows that spelling.
+type TransitionIssueArgs struct {
+	Target
+	IssueIDOrKey string `json:"issueIdOrKey" jsonschema:"Issue ID or key to move, e.g. WEB-1"`
+	StatusID     int    `json:"statusId" jsonschema:"Numeric id of the destination status. Resolve it with listJiraStatuses, or pick a state name like Done and let the server look it up"`
+	StatusName   string `json:"statusName,omitempty" jsonschema:"Destination status by name, case-insensitive, e.g. 'In Progress'. An alternative to statusId when the name is easier to come by"`
+}

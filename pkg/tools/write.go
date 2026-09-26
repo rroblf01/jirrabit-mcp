@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -35,6 +36,16 @@ func registerIssueWriteTools(s *server.MCPServer, d Deps) {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithInputSchema[schema.EditIssueArgs](),
 	), editJiraIssue(d))
+
+	s.AddTool(mcp.NewTool("transitionJiraIssue",
+		mcp.WithDescription("Move an issue to another status. jirrabit enforces its workflow: a transition the project's configuration forbids is rejected, not forced. Pass statusId from listJiraStatuses, or statusName to look it up by name."),
+		mcp.WithTitleAnnotation("Transition issue"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.TransitionIssueArgs](),
+	), transitionJiraIssue(d))
 
 	s.AddTool(mcp.NewTool("addOrEditJiraIssueComment",
 		mcp.WithDescription("Add a comment, or edit an existing one. Pass commentId to replace an existing comment's body; omit it to create a new comment."),
@@ -197,6 +208,82 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 		}
 		return jsonResult(shaper.Issue(updated))
 	}
+}
+
+// transitionJiraIssue is editJiraIssue's status half under the name Atlassian
+// uses, so an agent that has driven real Jira reaches for the right tool
+// without reading this server's source. The write itself is the same PATCH
+// editJiraIssue issues, which is what applies the workflow check on the server.
+func transitionJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.TransitionIssueArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if args.IssueIDOrKey == "" {
+			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
+		}
+		if args.StatusID == 0 && args.StatusName == "" {
+			return mcp.NewToolResultError(
+				"Pass statusId (from listJiraStatuses) or statusName, e.g. \"In Progress\"",
+			), nil
+		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		log.Printf("[jirrabit-mcp transitionJiraIssue] %s", args.IssueIDOrKey)
+
+		statusID := args.StatusID
+		if statusID == 0 {
+			statusID, err = lookupStatusID(ctx, client, args.StatusName)
+			if err != nil {
+				return toolError(err)
+			}
+		}
+
+		var updated jira.Issue
+		path := fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey))
+		if err := client.Patch(ctx, path, map[string]any{"status_id": statusID}, &updated); err != nil {
+			return toolError(err)
+		}
+		return jsonResult(shaper.Issue(updated))
+	}
+}
+
+// lookupStatusID resolves a status name to its numeric id. The API's
+// /statuses/ list is the only place both halves live, so a name has to be
+// looked up before the PATCH can name it.
+func lookupStatusID(ctx context.Context, client *jira.Client, name string) (int, error) {
+	var envelope struct {
+		Items []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"items"`
+		Values []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"values"`
+	}
+	if err := client.Get(ctx, "statuses/", &envelope); err != nil {
+		return 0, err
+	}
+	rows := envelope.Items
+	if len(rows) == 0 {
+		rows = envelope.Values
+	}
+	wanted := strings.TrimSpace(name)
+	for _, row := range rows {
+		if strings.EqualFold(row.Name, wanted) {
+			return row.ID, nil
+		}
+	}
+	available := make([]string, 0, len(rows))
+	for _, row := range rows {
+		available = append(available, row.Name)
+	}
+	return 0, fmt.Errorf("no status named %q. This instance has: %s",
+		wanted, strings.Join(available, ", "))
 }
 
 func addOrEditJiraIssueComment(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

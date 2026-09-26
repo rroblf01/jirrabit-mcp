@@ -43,6 +43,20 @@ jobs:
       - name: go build
         run: go build -o /tmp/jirrabit-mcp ./cmd/jirrabit-mcp/
 
+      # The prose is part of the interface. An agent that reads the server
+      # instructions and calls a tool that is not registered gets "tool not
+      # found" and cannot recover, and no unit test notices — which is exactly
+      # how transitionJiraIssue came to be named in editJiraIssue's description
+      # before it existed. The phantom check runs against a live server, so it
+      # needs a jirrabit to talk to; the gated instance below is only used for
+      # its tool list, and every call in the default mode is expected to fail
+      # against it.
+      - name: instructions name no phantom tools
+        run: |
+          go build -o /tmp/flowtest ./cmd/flowtest/
+          JIRRABIT_URL=http://example.invalid JIRRABIT_API_KEY=ci-only \
+            /tmp/flowtest -phantoms-only -server /tmp/jirrabit-mcp
+
       # A tool that only compiles but cannot start would pass everything above,
       # and the first person to find out would be a user running it. The
       # container also verifies the Dockerfile, which nothing else does.

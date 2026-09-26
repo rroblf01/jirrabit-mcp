@@ -76,6 +76,8 @@ The client then connects to `http://<host>:8082/mcp`.
 ```
 cmd/jirrabit-mcp/main.go   # entrypoint: env parsing, transport selection, tool registration
 cmd/smoke/                 # end-to-end check: drives the server as a real MCP client
+cmd/flowtest/              # every tool's response shape, the error paths, and a
+                           # check that the prose names no unregistered tool
 cmd/multitenancy/          # proves two instances can be served over one connection
 internal/probe/            # lists a server's registered tools over stdio
 pkg/jira/client.go         # HTTP client for jirrabit's /api/v1/, bearer auth, retries
@@ -119,6 +121,15 @@ from.
 - **Delete and project-management tools are opt-in**, gated by
   `JIRRABIT_MCP_ENABLE_DELETE` / `JIRRABIT_MCP_ENABLE_MANAGE`, mirroring the
   reference server's behaviour. Visibility only — jirrabit still authorises.
+- **The prose is part of the interface.** A tool named in the server
+  instructions or in another tool's description that is not registered makes an
+  agent call `transitionJiraIssue`, get "tool not found", and stop. It already
+  happened: `editJiraIssue`'s description and the README both pointed at
+  `transitionJiraIssue` before the tool existed. `cmd/flowtest -phantoms-only`
+  scans the instructions and every description for tool-shaped names and fails
+  if one is unregistered; it runs in CI and needs no jirrabit. Run it after
+  touching any description, and exempt deliberately opt-in tools in
+  `optInTools`.
 
 ## Conventions
 

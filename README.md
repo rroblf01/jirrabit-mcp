@@ -129,19 +129,31 @@ cannot, so project names are not leaked.
 
 ## Available tools
 
-Always on:
+Always on — 17 tools:
 
 | Tool | jirrabit endpoint |
 |---|---|
 | `getJiraCurrentUser` | `GET /api/v1/me/` |
 | `listJiraProjects` | `GET /api/v1/projects/` |
 | `getJiraIssue` | `GET /api/v1/issues/{key}/` |
+| `createJiraIssue` | `POST /api/v1/projects/{key}/issues/` |
+| `editJiraIssue` | `PATCH /api/v1/issues/{key}/` |
+| `transitionJiraIssue` | `PATCH /api/v1/issues/{key}/` with `status_id` |
+| `searchJiraIssuesUsingJql` | `GET /api/v1/search?jql=` |
 | `listJiraIssueComments` | `GET /api/v1/issues/{key}/comments/` |
 | `addOrEditJiraIssueComment` | `POST /api/v1/issues/{key}/comments/` (create only) |
 | `listJiraIssueWorklogs` | `GET /api/v1/issues/{key}/worklogs/` |
 | `addOrEditJiraIssueWorklog` | `POST /api/v1/issues/{key}/worklogs/` (create only) |
-| `createJiraIssue` | `POST /api/v1/projects/{key}/issues/` |
-| `editJiraIssue` | `PATCH /api/v1/issues/{key}/` |
+| `listJiraIssueLinkTypes` | `GET /api/v1/link-types/` |
+| `createJiraIssueLink` | `POST /api/v1/issues/{key}/links/` |
+| `watchJiraIssue` | `POST`/`DELETE /api/v1/issues/{key}/watchers/` |
+| `listJiraStatuses` | `GET /api/v1/statuses/` |
+| `listJiraPriorities` | `GET /api/v1/priorities/` |
+| `listJiraIssueTypeMetadata` | `GET /api/v1/issue-types/` |
+
+The three metadata tools exist so an agent can turn a status, priority or issue
+type *name* into the numeric id that the write tools require, instead of
+guessing.
 
 Opt-in:
 
@@ -150,10 +162,47 @@ Opt-in:
 | `deleteJiraIssue` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `updateJiraProject` | `JIRRABIT_MCP_ENABLE_MANAGE` |
 
-The remaining Atlassian Jira tools — JQL search, transitions, changelogs,
-boards, versions, components, entity properties, attachments — need endpoints
-jirrabit does not expose yet. They will appear as the API grows; see the tool
-surface in [AGENTS.md](AGENTS.md).
+Still missing, because jirrabit exposes no endpoint for them: changelogs, boards,
+versions, components, entity properties, attachments, and editing an existing
+worklog. They will appear as the API grows; see the tool surface in
+[AGENTS.md](AGENTS.md).
+
+### One known divergence
+
+`createJiraIssueLink` returns jirrabit's link payload, which carries
+`source`/`target` as **numeric ids**. Jira returns keyed issue objects
+(`outwardIssue`/`inwardIssue`). Both ends are identifiable from the `self` URL,
+but an agent that reads the ids as keys will be confused. Fixing it means
+shaping the link response, which needs a decision about whether the API or this
+server should resolve the keys.
+
+## Verifying a deployment
+
+```bash
+go test ./...
+go vet ./...
+
+# The server's own prose has to match its own tool list. Needs no jirrabit, so
+# it runs in CI on every push.
+go run ./cmd/flowtest -phantoms-only -server ./bin/jirrabit-mcp
+
+# End to end against a real jirrabit. Creates one issue, so use a scratch one.
+JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/smoke -server ./bin/jirrabit-mcp
+
+# Everything smoke does, plus 47 assertions about response shapes, the
+# write/read round trip, the error paths, multi-tenant isolation and the opt-in
+# gates. Add JIRRABIT_MCP_ENABLE_DELETE=1 JIRRABIT_MCP_ENABLE_MANAGE=1 to
+# exercise the destructive tools too (54 checks).
+JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/flowtest -server ./bin/jirrabit-mcp
+
+# Two instances over one connection, with project isolation and the
+# rejection paths (bad key, key without a URL, loopback URL).
+go run ./cmd/multitenancy -server ./bin/jirrabit-mcp \
+  -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
+
+# Just list the tools a server registers.
+JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./internal/probe ./bin/jirrabit-mcp
+```
 
 ## Verifying a deployment
 
