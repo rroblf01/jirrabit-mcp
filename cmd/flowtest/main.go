@@ -52,6 +52,8 @@ func main() {
 	// it without standing up the whole stack. The full run needs a live instance.
 	phantomsOnly := flag.Bool("phantoms-only", false,
 		"only check that the instructions and tool descriptions name no unregistered tool")
+	projectKey := flag.String("project", "",
+		"project key to create the test issue in. Discovered from listJiraProjects when empty")
 	flag.Parse()
 
 	if *phantomsOnly {
@@ -66,7 +68,7 @@ func main() {
 		return
 	}
 
-	if err := run(*serverPath, *timeout); err != nil {
+	if err := run(*serverPath, *projectKey, *timeout); err != nil {
 		fmt.Fprintf(os.Stderr, "flowtest: %v\n", err)
 		os.Exit(1)
 	}
@@ -76,7 +78,7 @@ func main() {
 	}
 }
 
-func run(serverPath string, timeout time.Duration) error {
+func run(serverPath string, projectKeyFlag string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -120,7 +122,11 @@ func run(serverPath string, timeout time.Duration) error {
 		jsonString(me, "accountId"))
 
 	projects, err := call(ctx, session, "listJiraProjects", nil)
-	check("listJiraProjects", err == nil && strings.Contains(projects, "DEMO"), errStr(err))
+	// Resolved here so every later assertion can be about *this* instance's
+	// project rather than a name baked in when the test was written.
+	projectKey := firstProjectKey(projectKeyFlag, projects)
+	check("listJiraProjects", err == nil && strings.Contains(projects, projectKey),
+		errStr(err)+" "+truncate(projects, 160))
 
 	types, err := call(ctx, session, "listJiraIssueTypeMetadata", nil)
 	check("listJiraIssueTypeMetadata returns ids", err == nil && strings.Contains(types, "id"),
@@ -134,7 +140,6 @@ func run(serverPath string, timeout time.Duration) error {
 
 	// --- the write/read round trip -------------------------------------
 	fmt.Println("\n[2] create, read back, edit")
-	projectKey := "DEMO"
 	issueTypeID := firstID(types)
 	statusID := firstID(statuses)
 	priorityID := firstID(priorities)
@@ -667,4 +672,33 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// projectKeys pulls the "key" of every entry in a Jira-shaped project list.
+func projectKeys(payload string) []string {
+	var envelope struct {
+		Values []struct {
+			Key string `json:"key"`
+		} `json:"values"`
+	}
+	if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(envelope.Values))
+	for _, v := range envelope.Values {
+		keys = append(keys, v.Key)
+	}
+	return keys
+}
+
+// firstProjectKey returns the key to work in: whatever the caller asked for, or
+// the first project the token can actually see.
+func firstProjectKey(want, projects string) string {
+	if want != "" {
+		return want
+	}
+	if keys := projectKeys(projects); len(keys) > 0 {
+		return keys[0]
+	}
+	return "DEMO"
 }

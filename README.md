@@ -175,6 +175,26 @@ versions, components, entity properties, attachments, and editing an existing
 worklog. They will appear as the API grows; see the tool surface in
 [AGENTS.md](AGENTS.md).
 
+### Multi-tenancy, verified
+
+A shared deployment is the normal case here, so it is tested rather than
+asserted. `cmd/isolationtest` runs against two live instances over a single
+stdio session and checks that:
+
+- each instance answers for itself and sees only its own projects;
+- a key presented to the instance it does not belong to is rejected with a 401
+  naming authentication, not served with the other tenant's data;
+- a corrupted key is rejected outright and never falls back to the server's
+  default instance;
+- interleaved A, B, A, B calls on one connection stay separated — the ordering
+  is the point, since a client pool keyed on the wrong thing passes every
+  non-interleaved test.
+
+`cmd/multitenancy` additionally covers a key with no `instanceUrl`, a loopback
+URL, and `cloudId` being accepted and ignored. The loopback rejection is
+deliberate: a shared server must not let a caller reach ports on the host it
+runs on.
+
 ### One known gap
 
 `LinkOut.created_by` is still a numeric user id while `source` and `target` are
@@ -206,6 +226,16 @@ JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/flowtest -server ./bin/jirrab
 go run ./cmd/multitenancy -server ./bin/jirrabit-mcp \
   -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
 
+# The cross-auth check, and the one to run before trusting a shared deployment.
+# Proves that A's key cannot read B, that a corrupted key never falls back to
+# the default instance, and that interleaved A,B,A,B calls on one connection
+# stay separated. Needs two instances and two keys, so it is not in CI.
+go run ./cmd/isolationtest -server ./bin/jirrabit-mcp \
+  -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
+
+# flowtest and cmd/smoke discover the project key from the instance, so they
+# work against any jirrabit and not only the demo. Pass -project to override.
+
 # Just list the tools a server registers.
 JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./internal/probe ./bin/jirrabit-mcp
 ```
@@ -223,6 +253,16 @@ JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/smoke -server ./bin/jirrabit-
 # rejection paths (bad key, key without a URL, loopback URL).
 go run ./cmd/multitenancy -server ./bin/jirrabit-mcp \
   -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
+
+# The cross-auth check, and the one to run before trusting a shared deployment.
+# Proves that A's key cannot read B, that a corrupted key never falls back to
+# the default instance, and that interleaved A,B,A,B calls on one connection
+# stay separated. Needs two instances and two keys, so it is not in CI.
+go run ./cmd/isolationtest -server ./bin/jirrabit-mcp \
+  -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
+
+# flowtest and cmd/smoke discover the project key from the instance, so they
+# work against any jirrabit and not only the demo. Pass -project to override.
 
 # Just list the tools a server registers.
 JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./internal/probe ./bin/jirrabit-mcp

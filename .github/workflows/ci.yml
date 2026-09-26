@@ -57,6 +57,15 @@ jobs:
           JIRRABIT_URL=http://example.invalid JIRRABIT_API_KEY=ci-only \
             /tmp/flowtest -phantoms-only -server /tmp/jirrabit-mcp
 
+      # Cross-tenant isolation is the property that matters most for a shared
+      # deployment, and it cannot be asserted without two instances to point at.
+      # So this is the one check CI cannot run: it needs two jirrabits and two
+      # keys. Run it locally against two instances before trusting a deploy —
+      # a pool that caches on the wrong key passes every single-tenant test.
+      - name: isolation (needs two instances, not run here)
+        run: |
+          echo "skipped: run cmd/isolationtest against two live instances"
+
       # A tool that only compiles but cannot start would pass everything above,
       # and the first person to find out would be a user running it. The
       # container also verifies the Dockerfile, which nothing else does.

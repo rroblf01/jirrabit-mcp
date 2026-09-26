@@ -78,6 +78,8 @@ cmd/jirrabit-mcp/main.go   # entrypoint: env parsing, transport selection, tool 
 cmd/smoke/                 # end-to-end check: drives the server as a real MCP client
 cmd/flowtest/              # every tool's response shape, the error paths, and a
                            # check that the prose names no unregistered tool
+cmd/isolationtest/         # cross-tenant isolation: needs two live instances, so
+                           # it is deliberately not in CI
 pkg/tools/sprints.go       # sprint read/create/update, delete behind the flag
 pkg/tools/filters.go       # saved filters and single-user lookup
 cmd/multitenancy/          # proves two instances can be served over one connection
@@ -129,6 +131,11 @@ from.
   `updateJiraSprint` does not close a sprint, because jirrabit's close carries
   unfinished issues to another sprint and no endpoint does only that; its
   description says so rather than letting an agent assume.
+- **Discover the project key, never hardcode it.** flowtest and cmd/smoke read it
+  from `listJiraProjects` (override with `-project`). flowtest originally
+  asserted a literal "DEMO" and passed on the instance it was written against
+  while failing 34 checks on any other — a portability test that is not portable
+  is worse than none, because it reads as coverage.
 - **The prose is part of the interface.** A tool named in the server
   instructions or in another tool's description that is not registered makes an
   agent call `transitionJiraIssue`, get "tool not found", and stop. It already
