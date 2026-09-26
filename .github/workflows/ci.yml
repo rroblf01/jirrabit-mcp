@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: fmt · vet · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: go build
+        run: go build -o /tmp/jirrabit-mcp ./cmd/jirrabit-mcp/
+
+      # A tool that only compiles but cannot start would pass everything above,
+      # and the first person to find out would be a user running it. The
+      # container also verifies the Dockerfile, which nothing else does.
+      - name: docker build
+        run: docker build -t jirrabit-mcp:ci .
+
+      - name: server registers its tools over stdio
+        run: |
+          go build -o /tmp/jirrabit-mcp ./cmd/jirrabit-mcp/
+          go build -o /tmp/probe ./internal/probe/
+          JIRRABIT_URL=http://example.invalid JIRRABIT_API_KEY=ci-only \
+            /tmp/probe /tmp/jirrabit-mcp
+
+      # The Compose file is what a deployer runs first, so a typo in it should
+      # fail here rather than on their machine.
+      - name: compose file is valid
+        run: docker compose config --quiet
+
+      # The server is the point of this repo, so it must start by default. Only
+      # the toolchain image is opt-in. (The integrated stack in jirrabit puts the
+      # service behind an `mcp` profile; that assertion belongs to its CI.)
+      - name: compose starts the server by default
+        run: |
+          docker compose config --services | grep -q '^jirrabit-mcp$'
+          docker compose config --services | grep -q '^jirrabit-mcp-dev$' \
+            && { echo "the toolchain service should be behind the dev profile"; exit 1; }
+          echo "server is on by default, toolchain image is opt-in"
