@@ -11,9 +11,12 @@ import (
 // valid query without reading the README.
 
 const (
-	jqlFieldList = "project, key, status, statusCategory, priority, type, label, " +
+	// JQLFieldList and JQLOperatorList are quoted in the server's instructions.
+	// They live here, next to the alias table that implements them, so the text
+	// an agent reads cannot drift away from what the parser accepts.
+	JQLFieldList = "project, key, status, statusCategory, priority, type, label, " +
 		"sprint, epic, assignee, reporter, text"
-	jqlOperatorList = "=, !=, ~, in, plus 'is EMPTY' and 'is not EMPTY'"
+	JQLOperatorList = "=, !=, ~, in, plus 'is EMPTY' and 'is not EMPTY'"
 )
 
 // fieldAliases maps the free-form `fields` object onto the numeric ids jirrabit's

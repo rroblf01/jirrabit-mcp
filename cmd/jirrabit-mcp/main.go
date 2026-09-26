@@ -1,8 +1,8 @@
-// Command jirrabit-mcp is an MCP server that exposes a jirrabit instance through
-// the Atlassian Jira tool vocabulary.
+// Command jirrabit-mcp is an MCP server that exposes one or more jirrabit
+// instances through Atlassian's Jira tool vocabulary.
 //
-// It is a pure MCP server: it registers tools and proxies them to jirrabit's
-// REST API. It holds no AI provider credentials and makes no model calls — the
+// It is a pure MCP server. It holds no AI provider credentials and makes no
+// model calls: it registers tools and proxies them to jirrabit's REST API. The
 // MCP client owns the model.
 package main
 
@@ -30,33 +30,109 @@ const serverName = "jirrabit-mcp"
 
 const serverVersion = "1.0.0"
 
-// instructions is what the server tells the client about itself. It is the
-// agent's only map of this server, so it states the three things an agent cannot
-// infer: the vocabulary is Jira's, the data is jirrabit's, and the instance is
-// named per call.
-const instructions = `This server exposes one or more jirrabit instances — a self-hosted
-Jira-like tracker — using Atlassian's Jira tool names and payload shapes. Call
-these tools exactly as you would call the official Atlassian Jira MCP server.
+// instructions is what the client is told about this server, and it is the only
+// documentation an agent is guaranteed to read. Everything here is written to be
+// sufficient on its own: an agent that has only these instructions and the tool
+// schemas should be able to work without opening a README.
+//
+// It is deliberately concrete. Stating the actual JQL vocabulary, the actual
+// error semantics and the actual list of things that do not work is what turns
+// this from "call tools and guess" into "call tools and know".
+const instructions = `You are working with jirrabit, a self-hosted issue tracker, through Atlassian's
+Jira tool vocabulary. Call these tools exactly as you would call the official
+Atlassian Jira MCP server; the names, arguments and payload shapes match.
 
-Choosing an instance. Every tool accepts instanceUrl and apiKey. Supply them to
-work against a particular jirrabit; omit both to use this server's default
-instance, which is what a single-user deployment configures. The apiKey comes
-from that instance's own API keys page. An apiKey without an instanceUrl is
-rejected rather than applied to the default, so one user's credentials are never
-sent to another user's data.
+CHOOSING AN INSTANCE
+Every tool accepts instanceUrl and apiKey. Supply them to work against a
+particular jirrabit; omit both to use this server's default instance. An apiKey
+without an instanceUrl is rejected, so you cannot send one person's credentials
+to another person's data. cloudId is accepted and ignored: jirrabit is
+single-tenant per deployment, and instanceUrl plays that role.
 
-What differs from real Jira:
-  - cloudId is accepted and ignored; instanceUrl plays that role.
-  - Descriptions and comments are stored as Markdown; they are returned as
-    Atlassian Document Format and you send plain text.
-  - Pagination is offset-based underneath, presented as an opaque nextPageToken.
-    Pass that token back to continue; do not parse it.
-  - Availability varies. Some Jira tools are not registered because jirrabit has
-    no endpoint behind them yet, and a few report plainly that the operation is
-    unsupported. Treat such a message as "not available here", not as a bug.
+STARTING A SESSION
+Call getJiraCurrentUser to confirm the credentials work, then listJiraProjects to
+see which projects you can reach. A project you cannot see does not appear at
+all.
 
-Start by calling getJiraCurrentUser. If you have no instance configured, it will
-tell you so, and you can then supply instanceUrl and apiKey explicitly.`
+READING A 404
+A 404 does not necessarily mean the key is wrong. jirrabit deliberately answers
+404 for a project or issue the caller cannot see, so that key existence is not
+leaked. Before concluding an issue is missing, consider that the API key's owner
+may simply not be a member of its project.
+
+JQL
+searchJiraIssuesUsingJql is the tool to reach for first. The query language is a
+subset of JQL:
+
+  Fields: ` + tools.JQLFieldList + `
+  Operators: ` + tools.JQLOperatorList + `
+  An optional trailing "ORDER BY field [ASC|DESC]" — created, updated, priority, key.
+
+Notes that save a round trip:
+  - statusCategory takes the display names Jira uses, so
+    statusCategory != Done and statusCategory = "In Progress" both work.
+  - "is EMPTY" / "is not EMPTY" work on every field, including labels and
+    assignee. "assignee is EMPTY" finds unassigned work.
+  - assignee and reporter match on username, display name or full name.
+  - A fragment with no operator at all is a free-text search over summary and
+    description, so plain words work.
+  - A clause that cannot be parsed is reported as an error, never as an empty
+    result. If you get an error, the query is wrong; if you get zero results,
+    the query worked and nothing matched.
+
+  Example: project = WEB AND statusCategory != Done ORDER BY priority DESC
+
+WRITING
+Issue types, priorities and statuses are addressed by numeric id, and you cannot
+invent one. Call listJiraIssueTypeMetadata, listJiraPriorities or
+listJiraStatuses first, then pass the id:
+
+  createJiraIssue  — takes issueTypeName (a name, resolved for you) and
+                     assignee (a username, resolved for you).
+  editJiraIssue    — for everything else, use the fields object:
+                     {"priorityId": 4, "statusId": 2, "sprintId": 1}
+                     An unrecognised key is an error, not a silent no-op.
+
+Status changes are validated against the instance's workflow: a status that is
+not reachable from the current one is rejected with an explanatory error. That
+is a property of the instance, not a mistake on your part — read the error and
+tell the user which transition the workflow forbids. Some instances have an
+open workflow where any transition is allowed.
+
+Time and dates:
+  - dueDate is YYYY-MM-DD.
+  - addOrEditJiraIssueWorklog takes either timeSpent ("2h 30m", "1d", "90m") or
+    timeSpentSeconds. The result reports both timeSpent and timeSpentSeconds.
+
+Comments, links and watchers:
+  - addOrEditJiraIssueComment creates a comment. Passing commentId to edit one
+    is not supported yet and says so.
+  - createJiraIssueLink is directional: outwardIssueKey is the issue you are
+    acting on, inwardIssueKey is the other end. Call listJiraIssueLinkTypes
+    first rather than guessing a name.
+  - watchJiraIssue defaults to watching; pass isWatching: false to unwatch.
+
+READING RESULTS
+  - Descriptions and comments are stored as Markdown and come back as Atlassian
+    Document Format, which is a nested {type, version, content} structure. You
+    send plain text and the server wraps it.
+  - Lists come back as {"total", "startAt", "maxResults", "nextPageToken",
+    "values"}. Pass nextPageToken back verbatim to continue. Do not parse it, do
+    not construct it, and prefer it over startAt when paging.
+  - An issue's status carries a statusCategory with key "new", "indeterminate" or
+    "done". Agents usually want that rather than the status name.
+  - Times in minutes on jirrabit's side are reported in seconds in the
+    timeSpentSeconds and timespent fields.
+
+NOT AVAILABLE HERE
+These have no jirrabit endpoint yet, so the tools are not registered: JQL
+aggregation functions, dashboards, boards, versions, components, entity
+properties, attachments, remote links and changelogs. If a task needs one, say
+so rather than looking for a tool that is not in the list.
+
+The destructive tool deleteJiraIssue and the project-administration tool
+updateJiraProject are only present when the operator has enabled them. If they
+are absent, deletion is not something you can do through this server.`
 
 func main() {
 	transport := flag.String("transport", envOr("JIRRABIT_MCP_TRANSPORT", "stdio"),
@@ -206,6 +282,16 @@ func serveHTTP(srv *server.MCPServer, addr, path string) error {
 	}
 }
 
+// displayAddr renders a listen address for humans. ":8082" has no host part, and
+// printing "http://:8082/mcp" reads like a broken URL rather than the wildcard
+// bind it actually is.
+func displayAddr(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "http://0.0.0.0" + addr
+	}
+	return "http://" + addr
+}
+
 // --- env helpers -----------------------------------------------------------
 
 // envOr reads an environment variable, falling back to a default.
@@ -240,14 +326,4 @@ func durationEnv(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(seconds) * time.Second
-}
-
-// displayAddr renders a listen address for humans. ":8082" has no host part, and
-// printing "http://:8082/mcp" reads like a broken URL rather than the wildcard
-// bind it actually is.
-func displayAddr(addr string) string {
-	if strings.HasPrefix(addr, ":") {
-		return "http://0.0.0.0" + addr
-	}
-	return "http://" + addr
 }
