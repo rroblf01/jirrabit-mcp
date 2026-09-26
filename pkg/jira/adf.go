@@ -71,70 +71,73 @@ func ADFText(text string) *ADFDoc {
 
 // ADFPlainText flattens an ADF document back to plain text.
 //
-// A nil document is the empty string. Inline soft breaks become spaces and hard
-// breaks become newlines, so the result is valid Markdown that jirrabit can
-// store without further processing.
+// A nil document is the empty string. Blocks are joined with a blank line, which
+// is what Markdown needs to keep a paragraph break — joining with a single
+// newline silently merges paragraphs on the round trip.
 func ADFPlainText(doc *ADFDoc) string {
 	if doc == nil {
 		return ""
 	}
-	var out strings.Builder
-	writeADFNode(&out, ADFNode{Type: doc.Type, Content: doc.Content})
-	return strings.TrimSpace(out.String())
+	blocks := make([]string, 0, len(doc.Content))
+	for _, child := range doc.Content {
+		if rendered := writeADFNode(child); rendered != "" {
+			blocks = append(blocks, rendered)
+		}
+	}
+	return strings.Join(blocks, "\n\n")
 }
 
-func writeADFNode(out *strings.Builder, node ADFNode) {
+// writeADFNode renders one node. Block-level nodes are separated by their
+// caller with a blank line; inline nodes are concatenated with no separator.
+func writeADFNode(node ADFNode) string {
 	switch node.Type {
 	case "text":
-		out.WriteString(node.Text)
+		return node.Text
 	case "hardBreak":
-		out.WriteString("\n")
+		return "\n"
 	case "paragraph":
-		writeADFChildren(out, node)
-		out.WriteString("\n")
+		return strings.TrimRight(joinInline(node.Content), " \t")
 	case "heading":
-		level := 1
-		if node.Attrs != nil {
-			level = 1
-		}
-		out.WriteString(strings.Repeat("#", level) + " ")
-		writeADFChildren(out, node)
-		out.WriteString("\n")
+		return "# " + joinInline(node.Content)
 	case "bulletList", "orderedList":
+		items := make([]string, 0, len(node.Content))
 		for _, item := range node.Content {
-			out.WriteString("- ")
-			writeADFChildren(out, item)
-			out.WriteString("\n")
+			items = append(items, "- "+joinInline(item.Content))
 		}
+		return strings.Join(items, "\n")
 	case "listItem":
-		writeADFChildren(out, node)
+		return joinInline(node.Content)
 	case "codeBlock":
-		language := ""
-		if node.Attrs != nil {
+		language := "text"
+		if node.Attrs != nil && node.Attrs.Language != "" {
 			language = node.Attrs.Language
 		}
-		if language == "" {
-			language = "text"
-		}
-		out.WriteString("```" + language + "\n")
-		writeADFChildren(out, node)
-		out.WriteString("\n```\n")
+		body := strings.TrimRight(joinInline(node.Content), "\n")
+		return "```" + language + "\n" + body + "\n```"
 	case "blockquote":
+		parts := make([]string, 0, len(node.Content))
 		for _, child := range node.Content {
-			writeADFNode(out, child)
+			if rendered := writeADFNode(child); rendered != "" {
+				parts = append(parts, rendered)
+			}
 		}
+		return strings.Join(parts, "\n\n")
 	case "rule":
-		out.WriteString("---\n")
+		return "---"
 	default:
 		// Unknown node: recurse so nothing is silently dropped.
-		writeADFChildren(out, node)
+		return joinInline(node.Content)
 	}
 }
 
-func writeADFChildren(out *strings.Builder, node ADFNode) {
-	for _, child := range node.Content {
-		writeADFNode(out, child)
+// joinInline renders inline content with no separator, which is what text runs
+// and inline marks need.
+func joinInline(nodes []ADFNode) string {
+	var out strings.Builder
+	for _, child := range nodes {
+		out.WriteString(writeADFNode(child))
 	}
+	return out.String()
 }
 
 // fencedBlock recognises a ```lang ... ``` block occupying the whole string.
@@ -148,12 +151,15 @@ func fencedBlock(block string) (language, code string, ok bool) {
 		return "", "", false
 	}
 	language = strings.TrimSpace(rest[:newline])
-	body := strings.TrimSpace(rest[newline+1:])
-	if !strings.HasSuffix(body, "```") {
+	// Trim the body first so the closing fence sits at the end, then drop the
+	// newline that preceded it, so the code text carries no trailing break.
+	inner := strings.TrimSpace(rest[newline+1:])
+	if !strings.HasSuffix(inner, "```") {
 		return "", "", false
 	}
+	code = strings.TrimRight(strings.TrimSuffix(inner, "```"), "\n")
 	if language == "" {
 		language = "text"
 	}
-	return language, strings.TrimSuffix(body, "```"), true
+	return language, code, true
 }

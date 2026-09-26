@@ -33,15 +33,15 @@ func ParseJiraDuration(value string) (int, error) {
 
 	perUnit := map[byte]int{'w': 7 * 24 * 60, 'd': 24 * 60, 'h': 60, 'm': 1}
 
+	// A duration is a sequence of <number><unit> pairs, so the accumulator is
+	// reset after every unit. Carrying a "already saw a unit" flag would wrongly
+	// reject the digits of the next pair, making "1h 30m" invalid.
 	var total, digits int
-	seenDigit, seenUnit := false, false
+	seenDigit := false
 	for i := 0; i < len(raw); i++ {
 		char := raw[i]
 		switch {
 		case char >= '0' && char <= '9':
-			if seenUnit {
-				return 0, fmt.Errorf("invalid duration %q: number after a unit", value)
-			}
 			digits = digits*10 + int(char-'0')
 			seenDigit = true
 		case char == '+' && i == 0:
@@ -55,7 +55,7 @@ func ParseJiraDuration(value string) (int, error) {
 				return 0, fmt.Errorf("invalid duration %q: unit %q without a number", value, string(char))
 			}
 			total += digits * perMinute
-			digits, seenDigit, seenUnit = 0, false, true
+			digits, seenDigit = 0, false
 		}
 	}
 	if seenDigit {

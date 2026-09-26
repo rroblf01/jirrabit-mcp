@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // jirrabit paginates by offset (`page`, `size`); Jira's search tool paginates
@@ -81,6 +82,11 @@ func NextToken(page Page) string {
 
 // WithPage appends jirrabit's offset pagination params to a query string that
 // already carries the tool's filters.
+//
+// query is the path with any existing query string already appended, e.g.
+// "projects/DEMO/issues/?status=Open". The separator is '?' when there is no
+// query yet and '&' otherwise — building "projects/&page=1" would make
+// jirrabit answer with a 301 redirect to add the '?'.
 func WithPage(query string, page, size int) string {
 	if page < 1 {
 		page = 1
@@ -91,5 +97,9 @@ func WithPage(query string, page, size int) string {
 	if size > MaxPageSize {
 		size = MaxPageSize
 	}
-	return fmt.Sprintf("%s&page=%d&size=%d", query, page, size)
+	separator := "?"
+	if strings.Contains(query, "?") {
+		separator = "&"
+	}
+	return fmt.Sprintf("%s%spage=%d&size=%d", query, separator, page, size)
 }
