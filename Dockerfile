@@ -20,19 +20,21 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags "-s -w -X main.serverVersion=${VERSION}" \
     -o /out/jirrabit-mcp ./cmd/jirrabit-mcp/ \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/smoke ./cmd/smoke/
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/smoke ./cmd/smoke/ \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/healthcheck ./cmd/healthcheck/
 
 # --- runtime ---------------------------------------------------------------
 FROM alpine:3.22
 
-# wget is for the compose healthcheck; ca-certificates is for HTTPS instances.
+# ca-certificates is for reaching HTTPS instances.
 # tzdata is needed because jirrabit is timezone-aware and operators set
 # JIRRABIT_*_TIMEZONE by name.
-RUN apk add --no-cache ca-certificates tzdata wget \
+RUN apk add --no-cache ca-certificates tzdata \
     && adduser -D -u 10001 mcp
 
 COPY --from=build /out/jirrabit-mcp /usr/local/bin/jirrabit-mcp
 COPY --from=build /out/smoke /usr/local/bin/smoke
+COPY --from=build /out/healthcheck /usr/local/bin/healthcheck
 
 USER mcp
 
@@ -46,6 +48,6 @@ ENV JIRRABIT_MCP_TRANSPORT=http \
 EXPOSE 8082
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --quiet --spider "http://127.0.0.1:8082/mcp" || exit 1
+    CMD /usr/local/bin/healthcheck || exit 1
 
 ENTRYPOINT ["/usr/local/bin/jirrabit-mcp"]
