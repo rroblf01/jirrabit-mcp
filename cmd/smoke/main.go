@@ -107,6 +107,16 @@ func run(serverPath, projectKey string, timeout time.Duration) error {
 	}
 	fmt.Printf("  createJiraIssue            %s\n", key)
 
+	// A second issue, so the link tool has two ends to work with.
+	other, err := step("createJiraIssue", map[string]any{
+		"projectKey": projectKey, "summary": "Second issue, for the link tool",
+	})
+	if err != nil {
+		return err
+	}
+	otherKey := jsonString(other, "key")
+	fmt.Printf("  createJiraIssue (second)   %s\n", otherKey)
+
 	// 5. Read it back. Proves the Jira-shaped payload is well formed.
 	fetched, err := step("getJiraIssue", map[string]any{"issueIdOrKey": key})
 	if err != nil {
@@ -164,6 +174,11 @@ func run(serverPath, projectKey string, timeout time.Duration) error {
 		fmt.Printf("  edit comment (unsupported) reported cleanly: yes\n")
 	} else {
 		fmt.Printf("  edit comment (unsupported) returned success; expected an explanation\n")
+	}
+
+	// 10. JQL, link types, a link, and watch/unwatch.
+	if err := searchAndLink(ctx, session, projectKey, key, otherKey); err != nil {
+		return err
 	}
 
 	fmt.Printf("\nsmoke test passed. Test issue left behind: %s\n", key)
@@ -242,4 +257,79 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// searchAndLink exercises the JQL and link tools, which are the ones an agent
+// reaches for first.
+func searchAndLink(ctx context.Context, session *client.Client, projectKey, key, otherKey string) error {
+	call := func(name string, args map[string]any) (string, error) {
+		var req mcp.CallToolRequest
+		req.Params.Name = name
+		req.Params.Arguments = args
+		res, err := session.CallTool(ctx, req)
+		if err != nil {
+			return "", err
+		}
+		var out strings.Builder
+		for _, block := range res.Content {
+			if text, ok := block.(mcp.TextContent); ok {
+				out.WriteString(text.Text)
+			}
+		}
+		if res.IsError {
+			return out.String(), fmt.Errorf("%s", out.String())
+		}
+		return out.String(), nil
+	}
+
+	// JQL: the clause agents write most often.
+	found, err := call("searchJiraIssuesUsingJql", map[string]any{
+		"jql": "project = " + projectKey + " AND statusCategory != Done ORDER BY created DESC",
+	})
+	if err != nil {
+		return fmt.Errorf("searchJiraIssuesUsingJql: %w", err)
+	}
+	fmt.Printf("  searchJiraIssuesUsingJql  %s\n", found[:min(len(found), 110)])
+
+	// A malformed query must come back as an explanation, not as "no results".
+	_, err = call("searchJiraIssuesUsingJql", map[string]any{"jql": "statuss = Done"})
+	if err == nil {
+		fmt.Printf("  bad JQL reported cleanly: NO (expected an explanation)\n")
+	} else {
+		fmt.Printf("  bad JQL reported cleanly: yes\n")
+	}
+
+	// Link types first, because createJiraIssueLink asks the agent to do that.
+	types, err := call("listJiraIssueLinkTypes", map[string]any{})
+	if err != nil {
+		return fmt.Errorf("listJiraIssueLinkTypes: %w", err)
+	}
+	fmt.Printf("  listJiraIssueLinkTypes     %s\n", types)
+
+	link, err := call("createJiraIssueLink", map[string]any{
+		"linkTypeName": "relates_to", "outwardIssueKey": key, "inwardIssueKey": otherKey,
+	})
+	if err != nil {
+		return fmt.Errorf("createJiraIssueLink: %w", err)
+	}
+	fmt.Printf("  createJiraIssueLink       %s\n", link[:min(len(link), 110)])
+
+	// Watch then unwatch, so the issue is left as it was found.
+	for _, watching := range []bool{true, false} {
+		if _, err := call("watchJiraIssue", map[string]any{
+			"issueIdOrKey": key, "isWatching": watching,
+		}); err != nil {
+			return fmt.Errorf("watchJiraIssue(%v): %w", watching, err)
+		}
+	}
+	fmt.Printf("  watchJiraIssue            watch and unwatch both succeeded\n")
+	return nil
+}
+
+// min avoids importing math for a single comparison.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

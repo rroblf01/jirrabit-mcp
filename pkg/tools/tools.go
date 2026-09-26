@@ -53,6 +53,9 @@ type Options struct {
 // Register wires every enabled tool group onto the MCP server.
 func (d Deps) Register(s *server.MCPServer, opts Options) {
 	registerReadTools(s, d)
+	registerSearchTools(s, d)
+	registerLinkTools(s, d)
+	registerWatchTools(s, d)
 	registerIssueWriteTools(s, d)
 
 	if opts.EnableDelete {

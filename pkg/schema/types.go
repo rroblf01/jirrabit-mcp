@@ -133,3 +133,35 @@ type UpdateProjectArgs struct {
 	Description    *string `json:"description,omitempty" jsonschema:"New project description"`
 	Archived       *bool   `json:"archived,omitempty" jsonschema:"Whether the project is archived"`
 }
+
+// --- search ---------------------------------------------------------------
+
+// SearchIssuesArgs is the input of searchJiraIssuesUsingJql.
+type SearchIssuesArgs struct {
+	Target
+	JQL           string `json:"jql" jsonschema:"JQL query. Supported fields: project, key, status, statusCategory, priority, type, label, sprint, epic, assignee, reporter, text; operators = != ~ in and 'is EMPTY' / 'is not EMPTY'; an optional trailing 'ORDER BY field [ASC|DESC]'. A fragment with no operator is a free-text search"`
+	MaxResults    int    `json:"maxResults,omitempty" jsonschema:"Items per page, 1-200. Default 50"`
+	NextPageToken string `json:"nextPageToken,omitempty" jsonschema:"Opaque cursor from a previous response's nextPageToken"`
+}
+
+// ListLinkTypesArgs is the input of listJiraIssueLinkTypes.
+type ListLinkTypesArgs struct {
+	Target
+}
+
+// CreateLinkArgs is the input of createJiraIssueLink.
+type CreateLinkArgs struct {
+	Target
+	LinkTypeName    string `json:"linkTypeName" jsonschema:"Link type from listJiraIssueLinkTypes, e.g. 'blocks' or 'relates_to'"`
+	InwardIssueKey  string `json:"inwardIssueKey" jsonschema:"The other issue of the link"`
+	OutwardIssueKey string `json:"outwardIssueKey" jsonschema:"This issue: the one the link hangs off"`
+	Comment         string `json:"comment,omitempty" jsonschema:"Optional note describing the link"`
+}
+
+// WatchIssueArgs is the input of watchJiraIssue. A link is directional, so
+// Watching says which side of it this issue sits on.
+type WatchIssueArgs struct {
+	Target
+	IssueIDOrKey string `json:"issueIdOrKey" jsonschema:"Issue ID or key, e.g. WEB-1"`
+	IsWatching   *bool  `json:"isWatching,omitempty" jsonschema:"true to watch, false to unwatch. Defaults to true"`
+}
