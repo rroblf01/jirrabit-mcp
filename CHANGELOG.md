@@ -11,7 +11,7 @@ The version a running server reports — in the `initialize` response, which is
 how you tell two builds apart — is stamped at image build time from the release
 tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
-## [Unreleased]
+## [1.1.1] - 2026-09-27
 
 ### Added
 
