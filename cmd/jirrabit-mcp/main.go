@@ -216,7 +216,7 @@ func run(transport, addr, path string) error {
 		server.WithLogging(),
 		server.WithToolCapabilities(true),
 		server.WithRecovery(),
-		server.WithInstructions(instanceChoice(defaultURL, allowedHosts)+instructions),
+		server.WithInstructions(buildInstructions(defaultURL, allowedHosts)),
 	)
 
 	tools.Deps{Pool: pool}.Register(srv, tools.Options{
@@ -358,6 +358,22 @@ func publiclyReachable(transport, addr string) bool {
 		return !strings.EqualFold(host, "localhost")
 	}
 	return !ip.IsLoopback()
+}
+
+// placeholder is the marker in the instructions block that instanceChoice fills
+// in. It has to appear in that text exactly once: the test below fails if either
+// the marker or the substitution goes away, because a server that ships the
+// marker to an agent is worse than one that never had the feature.
+const placeholder = "__INSTANCE_CHOICE__"
+
+// buildInstructions is the only place the instructions are assembled. It has to
+// be: the first attempt prepended the sentence to the whole block and left the
+// marker in place, so a deployed server told agents to look for a literal
+// "__INSTANCE_CHOICE__" in its own instructions. The test that should have caught
+// it did not, because it asserted a substitution the test itself performed
+// rather than the one the server does.
+func buildInstructions(defaultURL string, allowed *jira.HostPolicy) string {
+	return strings.Replace(instructions, placeholder, instanceChoice(defaultURL, allowed), 1)
 }
 
 // instanceChoice tells the agent how to name an instance, which is the one thing
