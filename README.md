@@ -295,10 +295,17 @@ downloading or building anything: run the streamable HTTP transport, put it
 behind TLS, and let each caller name their own instance.
 
 ```bash
+docker build -t jirrabit-mcp .
+
 docker run -d --name jirrabit-mcp -p 127.0.0.1:8082:8082 \
+  -e JIRRABIT_MCP_TRANSPORT=http \
   -e JIRRABIT_MCP_ALLOWED_HOSTS='.example.com' \
-  ghcr.io/rroblf01/jirrabit-mcp:latest
+  jirrabit-mcp
 ```
+
+No image is published to a registry; build it, or push it to one of your own
+first. `-p 127.0.0.1:8082:8082` binds the published port to loopback on purpose:
+the reverse proxy on the same host reaches it, and nothing else does.
 
 A client then points at your endpoint and supplies its own credentials on every
 call — no install, no account with you:
