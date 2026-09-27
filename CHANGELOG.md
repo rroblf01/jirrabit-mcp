@@ -11,21 +11,7 @@ The version a running server reports — in the `initialize` response, which is
 how you tell two builds apart — is stamped at image build time from the release
 tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
-## [1.1.0] - 2026-09-27
-
-### Added
-
-- **Unknown arguments are rejected, with the valid ones listed** and the closest
-  match suggested. Found by running a real 9B model against a real deployment:
-  `createJiraIssue` was quietly discarding `priorityId`, a field Atlassian's own
-  tool has, so an agent trained on it produced an issue with no priority and no
-  explanation. Turning the check on surfaced it at once, and `flowtest` failed 26
-  checks until the schema was fixed rather than the check relaxed.
-- `priorityId`, `statusId` and `sprintId` are now first-class arguments on
-  `createJiraIssue` and `editJiraIssue`. jirrabit's API accepted all three and
-  the MCP only reached them through the free-form `fields` object, so nothing
-  told an agent they existed. Sending one in both places is not an error: the
-  named argument wins.
+## [Unreleased]
 
 ### Added
 
@@ -43,6 +29,25 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
   server sent agents a literal `__INSTANCE_CHOICE__` and welded the sentence to
   the next line. The test that should have caught it asserted a substitution the
   test itself performed rather than the one the server does.
+
+## [1.1.0] - 2026-09-27
+
+### Added
+
+- **Unknown arguments are rejected, with the valid ones listed** and the closest
+  match suggested. Found by running a real 9B model against a real deployment:
+  `createJiraIssue` was quietly discarding `priorityId`, a field Atlassian's own
+  tool has, so an agent trained on it produced an issue with no priority and no
+  explanation. Turning the check on surfaced it at once, and `flowtest` failed 26
+  checks until the schema was fixed rather than the check relaxed.
+- `priorityId`, `statusId` and `sprintId` are now first-class arguments on
+  `createJiraIssue` and `editJiraIssue`. jirrabit's API accepted all three and
+  the MCP only reached them through the free-form `fields` object, so nothing
+  told an agent they existed. Sending one in both places is not an error: the
+  named argument wins.
+
+### Fixed
+
 - The server instructions promised a default instance on servers that have none,
   which is every shared deployment and therefore the main one. The sentence is
   now chosen from the server's own configuration, so an agent is told either to
@@ -144,4 +149,5 @@ The first release. The image published on this tag is what
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.1.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rroblf01/jirrabit-mcp/releases/tag/v1.0.0
