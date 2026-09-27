@@ -149,5 +149,6 @@ The first release. The image published on this tag is what
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.1.1]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rroblf01/jirrabit-mcp/releases/tag/v1.0.0

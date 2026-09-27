@@ -66,23 +66,59 @@ func TestPublishedSectionsAreNotEditedAfterTheirTag(t *testing.T) {
 	}
 }
 
-// TestAnUnreleasedSectionExistsWhenThereIsUnshippedWork is the other half: new
-// work with nowhere to go tends to land in the newest released section.
+// TestNewEntriesGoUnderUnreleased is the other half: new work with nowhere to go
+// tends to land in the newest released section.
+//
+// The condition is that there IS new work. Right after a release there is none,
+// and demanding an [Unreleased] heading then would fail on every release and get
+// ignored, which is worse than not having the test at all -- that is what the
+// first version of this check did. "New work" means the file differs from the
+// copy in the most recent tag, ignoring the reference links at the foot, which
+// change whenever a release adds its own compare URL.
 func TestNewEntriesGoUnderUnreleased(t *testing.T) {
-	// Si no hay ningun tag, el fichero entero es trabajo sin publicar y el
-	// Unreleased no aporta nada todavia.
-	if out, err := exec.Command("git", "tag", "-l").Output(); err == nil && strings.TrimSpace(string(out)) == "" {
-		t.Skip("sin tags: todo el contenido es [Unreleased]")
+	latest, err := newestTag()
+	if err != nil || latest == "" {
+		t.Skip("sin tags: todo el contenido es trabajo sin publicar todavia")
 	}
 
+	published, err := exec.Command("git", "show", latest+":CHANGELOG.md").Output()
+	if err != nil {
+		t.Skipf("el CHANGELOG no existia todavia en %s", latest)
+	}
 	current, err := readChangelog()
 	if err != nil {
 		t.Fatalf("no se puede leer el CHANGELOG: %v", err)
 	}
-	if !strings.Contains(string(current), "## [Unreleased]") {
-		t.Error("hay tags publicados pero no hay seccion [Unreleased]: " +
-			"el trabajo nuevo se ira al lado de una version ya publicada")
+	if withoutLinks(string(published)) == withoutLinks(string(current)) {
+		t.Skipf("el CHANGELOG es identico al de %s: no hay trabajo sin publicar", latest)
 	}
+
+	if !strings.Contains(string(current), "## [Unreleased]") {
+		t.Errorf("el CHANGELOG difiere del de %s pero no hay seccion [Unreleased]: "+
+			"el trabajo nuevo se esta metiendo en una version ya publicada", latest)
+	}
+}
+
+// newestTag is the most recent tag reachable from HEAD, which is the release the
+// next one follows.
+func newestTag() (string, error) {
+	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// withoutLinks drops the reference-link block at the foot of the file.
+func withoutLinks(text string) string {
+	var kept []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "[") && strings.Contains(line, "]: http") {
+			continue
+		}
+		kept = append(kept, strings.TrimRight(line, " \t"))
+	}
+	return strings.TrimRight(strings.Join(kept, "\n"), "\n")
 }
 
 // readChangelog finds the file from the repo root. `go test` runs with the
