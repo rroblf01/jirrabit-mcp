@@ -380,7 +380,13 @@ container a read-only filesystem with no secrets mounted.
 ## Requirements
 
 Go 1.27 to build. One dependency: `github.com/mark3labs/mcp-go`. Runtime is a
-single static binary, or the Alpine image.
+single static binary, or the container image.
+
+## Changelog
+
+[`CHANGELOG.md`](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+format. Nothing is published yet, so everything currently sits under
+[Unreleased](CHANGELOG.md#unreleased).
 
 ## License
 
