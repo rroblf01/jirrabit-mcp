@@ -29,7 +29,12 @@ import (
 
 const serverName = "jirrabit-mcp"
 
-const serverVersion = "1.0.0"
+// serverVersion is a var, not a const, so the release build can stamp it with
+// -ldflags "-X main.serverVersion=…". A const is inlined at compile time and the
+// linker silently ignores -X for it, which looked like a working version stamp
+// for as long as the Dockerfile passed one: every published image reported
+// 1.0.0 and the ARG VERSION was decorative.
+var serverVersion = "1.0.0"
 
 // instructions is what the client is told about this server, and it is the only
 // documentation an agent is guaranteed to read. Everything here is written to be

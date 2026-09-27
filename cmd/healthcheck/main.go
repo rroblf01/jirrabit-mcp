@@ -12,6 +12,9 @@
 // dependency-free so it can sit in a minimal image.
 //
 // Usage: healthcheck [-url http://127.0.0.1:8082/mcp] [-timeout 4s]
+//
+// With no -url it reads JIRRABIT_MCP_ADDR and JIRRABIT_MCP_PATH, so it probes
+// wherever this server was told to listen.
 package main
 
 import (
@@ -20,13 +23,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 func main() {
-	base := flag.String("url", "http://127.0.0.1:8082/mcp", "MCP endpoint to probe")
+	base := flag.String("url", defaultEndpoint(), "MCP endpoint to probe")
 	timeout := flag.Duration("timeout", 4*time.Second, "request timeout")
 	flag.Parse()
 
@@ -34,6 +39,49 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unhealthy: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// defaultEndpoint derives the probe URL from the same environment the server
+// reads, so a deployment that moves the port does not silently keep probing a
+// port nothing is listening on — which reports healthy, or hangs, depending on
+// what else happens to answer there.
+//
+// The host is always loopback: the healthcheck runs beside the server, and
+// JIRRABIT_MCP_ADDR is a listen address, which may legitimately be the wildcard
+// ":8082" that cannot be dialled.
+func defaultEndpoint() string {
+	addr := os.Getenv("JIRRABIT_MCP_ADDR")
+	if addr == "" {
+		addr = ":8082"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		// No port in the value at all; treat the whole thing as a port.
+		host, port = "", addr
+	}
+	// Anything that is not a loopback address — including the empty wildcard and
+	// a name we cannot resolve — is probed over loopback, because the healthcheck
+	// runs beside the server and the listen address is not necessarily a
+	// diallable target.
+	if host == "" {
+		host = "127.0.0.1"
+	} else if !strings.EqualFold(host, "localhost") {
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			host = "127.0.0.1"
+		}
+	}
+	if port == "" {
+		port = "8082"
+	}
+
+	path := os.Getenv("JIRRABIT_MCP_PATH")
+	if path == "" {
+		path = "/mcp"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return "http://" + net.JoinHostPort(host, port) + path
 }
 
 // initialize is the smallest request that forces the server to actually run:

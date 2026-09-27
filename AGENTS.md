@@ -191,6 +191,18 @@ from.
   these before calling.
 - The `docs/` and `AGENTS.md` files are tracked. Do **not** add a `*.md` line to
   `.gitignore`.
+- The image is `FROM scratch` and the Dockerfile is the multi-arch contract.
+  Two things in it are load-bearing, and both were found the hard way:
+  `ARG TARGETOS`/`ARG TARGETARCH` are declared **without a default**, because a
+  declared default beats the value BuildKit injects — with `=amd64` the
+  `linux/arm64` build produced an x86-64 binary inside an image labelled arm64,
+  which pulls fine and then fails with "exec format error" on every ARM host.
+  And `HEALTHCHECK` is exec-form, because scratch has no `/bin/sh`: a
+  shell-form check cannot run at all, and the container reports healthy anyway.
+  `main.serverVersion` has to stay a `var`, too: `-X` is silently ignored for a
+  `const`, so every image reported `1.0.0` no matter what `VERSION` said.
+  The image is published by `.github/workflows/publish.yml` on release, to
+  `ghcr.io/rroblf01/jirrabit-mcp`.
 
 ## Verification
 
