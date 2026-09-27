@@ -27,8 +27,22 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
   told an agent they existed. Sending one in both places is not an error: the
   named argument wins.
 
+### Added
+
+- **A section in the server instructions listing the argument names that are not
+  what you would guess**: `projectKeyOrId` on the sprint and project tools,
+  `issueTypeName` rather than `issueType`, `statusId`/`statusName` rather than a
+  transition object, and that `startAt` is a page number and not Atlassian's
+  offset. Each of those cost a failed call during the work on strict arguments,
+  and an agent should not have to rediscover them. The instructions are the only
+  documentation an agent is guaranteed to read.
+
 ### Fixed
 
+- The instance paragraph was prepended instead of substituted, so a deployed
+  server sent agents a literal `__INSTANCE_CHOICE__` and welded the sentence to
+  the next line. The test that should have caught it asserted a substitution the
+  test itself performed rather than the one the server does.
 - The server instructions promised a default instance on servers that have none,
   which is every shared deployment and therefore the main one. The sentence is
   now chosen from the server's own configuration, so an agent is told either to

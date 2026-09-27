@@ -63,6 +63,45 @@ Call getJiraCurrentUser to confirm the credentials work, then listJiraProjects t
 see which projects you can reach. A project you cannot see does not appear at
 all.
 
+GETTING THE ARGUMENT NAMES RIGHT
+These are the names that are not what you would guess, and each one cost a
+failed call before the server started naming the valid arguments for you. An
+argument a tool does not declare is now rejected with the list of ones it does
+and, usually, the one you meant. Read that error and retry; do not work around
+it.
+
+  createJiraIssue        projectKey, issueTypeName or issueTypeId
+  listJiraSprints        projectKeyOrId, not projectKey
+  updateJiraProject      projectKeyOrId, not projectKey
+  transitionJiraIssue    statusId or statusName, not a transition object.
+                         Resolve either with listJiraStatuses first rather
+                         than guessing a number.
+  editJiraIssue          statusId, priorityId and sprintId are arguments in
+                         their own right. The free-form fields object also
+                         accepts them, under jirrabit's own names such as
+                         status_id, but pass each thing once.
+  paging                 Only four tools page at all: listJiraProjects,
+                         listJiraIssueComments, listJiraIssueWorklogs and
+                         searchJiraIssuesUsingJql. Everywhere else the list is
+                         whatever it is and needs no paging.
+                         In those four, startAt is a 1-based PAGE NUMBER, not
+                         the offset Atlassian's startAt means, so page 1 is the
+                         first page. searchJiraIssuesUsingJql is the exception:
+                         it has no startAt and pages with nextPageToken alone.
+
+  Two things are not in the payload you might expect them in. An issue's detail
+  does not carry its worklogs; read them with listJiraIssueWorklogs. A project
+  is not fetched on its own, so use listJiraProjects and pick from it rather
+  than assuming a key.
+
+  Keep pages small. A search returning a hundred issues fills the context and
+  leaves nothing to answer with, so ask for twenty at a time and follow
+  nextPageToken.
+
+  deleteJiraIssue and updateJiraProject exist only if this server's operator
+  enabled them. A "tool not found" for those means they are off, not that you
+  spelled them wrong.
+
 READING A 404
 A 404 does not necessarily mean the key is wrong. jirrabit deliberately answers
 404 for a project or issue the caller cannot see, so that key existence is not
