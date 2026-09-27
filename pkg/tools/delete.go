@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
 )
@@ -16,7 +15,7 @@ import (
 // JIRRABIT_MCP_ENABLE_DELETE is set, so an agent cannot discover — and therefore
 // cannot be tempted by — a permanent-delete capability the operator did not
 // offer. jirrabit's own permission checks remain the real gate either way.
-func registerDeleteTools(s *server.MCPServer, d Deps) {
+func registerDeleteTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("deleteJiraIssue",
 		mcp.WithDescription("Permanently delete an issue. This cannot be undone: comments, worklogs and attachments go with it. Only available because the operator enabled delete tools."),
 		mcp.WithTitleAnnotation("Delete issue"),

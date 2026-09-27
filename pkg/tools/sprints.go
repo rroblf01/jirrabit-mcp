@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -15,7 +14,7 @@ import (
 
 // registerSprintTools wires the always-on sprint surface: listing, reading,
 // creating and updating. Deleting lives in registerSprintDeleteTools.
-func registerSprintTools(s *server.MCPServer, d Deps) {
+func registerSprintTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("listJiraSprints",
 		mcp.WithDescription("List the sprints in a project, newest last. A sprint holds the issues assigned to it; searchJiraIssuesUsingJql with `sprint = \"<name>\"` gets the issues."),
 		mcp.WithTitleAnnotation("List sprints"),
@@ -60,7 +59,7 @@ func registerSprintTools(s *server.MCPServer, d Deps) {
 // registerSprintDeleteTools wires the destructive sprint tool, gated by
 // JIRRABIT_MCP_ENABLE_DELETE like deleteJiraIssue. A sprint holds the issues
 // assigned to it, so removing one is not something an agent should do unprompted.
-func registerSprintDeleteTools(s *server.MCPServer, d Deps) {
+func registerSprintDeleteTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("deleteJiraSprint",
 		mcp.WithDescription("Delete a sprint. The issues assigned to it are not deleted; they end up with no sprint, which puts them back in the backlog. Only available when JIRRABIT_MCP_ENABLE_DELETE is set."),
 		mcp.WithTitleAnnotation("Delete sprint"),

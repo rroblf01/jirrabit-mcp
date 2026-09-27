@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -21,7 +20,7 @@ import (
 // getJiraUser is not a duplicate of getJiraCurrentUser. That one answers "who am
 // I"; this one answers "who is this person", which is the question behind
 // resolving an assignee id or a JQL `assignee = ...` clause.
-func registerSavedFilterTools(s *server.MCPServer, d Deps) {
+func registerSavedFilterTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("listJiraSavedFilters",
 		mcp.WithDescription("List the saved JQL searches the calling user has stored. Each carries the query, so it can be handed straight to searchJiraIssuesUsingJql."),
 		mcp.WithTitleAnnotation("List saved filters"),

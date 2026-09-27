@@ -7,14 +7,13 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
 )
 
 // registerLinkTools wires issue-link reads and writes.
-func registerLinkTools(s *server.MCPServer, d Deps) {
+func registerLinkTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("listJiraIssueLinkTypes",
 		mcp.WithDescription("List the issue link types this instance supports. Call it before createJiraIssueLink rather than guessing a name."),
 		mcp.WithTitleAnnotation("List link types"),

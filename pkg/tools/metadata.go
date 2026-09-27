@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -43,7 +42,7 @@ type statusDTO struct {
 // type, status or priority, which leaves the write tools half-usable. Call
 // listJiraIssueTypeMetadata, listJiraPriorities and listJiraStatuses before
 // filling in the `fields` object or an issueTypeId argument.
-func registerMetadataTools(s *server.MCPServer, d Deps) {
+func registerMetadataTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("listJiraIssueTypeMetadata",
 		mcp.WithDescription(
 			"List the issue types this instance supports, with their ids. Call it before "+

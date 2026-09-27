@@ -49,11 +49,14 @@ Jira tool vocabulary. Call these tools exactly as you would call the official
 Atlassian Jira MCP server; the names, arguments and payload shapes match.
 
 CHOOSING AN INSTANCE
-Every tool accepts instanceUrl and apiKey. Supply them to work against a
-particular jirrabit; omit both to use this server's default instance. An apiKey
-without an instanceUrl is rejected, so you cannot send one person's credentials
-to another person's data. cloudId is accepted and ignored: jirrabit is
-single-tenant per deployment, and instanceUrl plays that role.
+Every tool accepts instanceUrl and apiKey, and how you must use them depends on
+this server:
+
+__INSTANCE_CHOICE__
+
+An apiKey without an instanceUrl is rejected, so you cannot send one person's
+credentials to another person's data. cloudId is accepted and ignored: jirrabit
+is single-tenant per deployment, and instanceUrl plays that role.
 
 STARTING A SESSION
 Call getJiraCurrentUser to confirm the credentials work, then listJiraProjects to
@@ -213,7 +216,7 @@ func run(transport, addr, path string) error {
 		server.WithLogging(),
 		server.WithToolCapabilities(true),
 		server.WithRecovery(),
-		server.WithInstructions(instructions),
+		server.WithInstructions(instanceChoice(defaultURL, allowedHosts)+instructions),
 	)
 
 	tools.Deps{Pool: pool}.Register(srv, tools.Options{
@@ -355,6 +358,33 @@ func publiclyReachable(transport, addr string) bool {
 		return !strings.EqualFold(host, "localhost")
 	}
 	return !ip.IsLoopback()
+}
+
+// instanceChoice tells the agent how to name an instance, which is the one thing
+// about this server's configuration it cannot guess.
+//
+// It matters more than it looks. These instructions are the only documentation
+// an agent is guaranteed to read, and a shared server — the whole point of this
+// one — has no default instance. Telling such a server "omit both to use this
+// server's default instance" is a promise the server cannot keep, and the agent
+// that believed it got "no instance given and this server has no default" for
+// its first call. Which server you are talking to decides the sentence, and only
+// the server knows.
+func instanceChoice(defaultURL string, allowed *jira.HostPolicy) string {
+	switch {
+	case defaultURL != "" && allowed == nil:
+		return "This server has a default instance, so you may omit both. Pass them anyway " +
+			"to reach a different one, for example your own jirrabit."
+	case defaultURL != "":
+		return "This server has a default instance, but it only talks to the instances on its " +
+			"operator's allowlist, so an unlisted instanceUrl is refused. Pass both to work " +
+			"against an approved one."
+	default:
+		return "This server has no default instance, so you MUST pass both on every call. " +
+			"Omitting them fails with \"no instance given and this server has no default\". " +
+			"instanceUrl is the base URL of your jirrabit and apiKey comes from your profile's " +
+			"API keys page. Both are yours; this server stores neither."
+	}
 }
 
 // --- env helpers -----------------------------------------------------------

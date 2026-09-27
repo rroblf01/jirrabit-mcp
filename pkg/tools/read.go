@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -15,7 +14,7 @@ import (
 
 // registerReadTools wires the always-on read tools. Everything here is
 // read-only, idempotent, and safe for an agent to call speculatively.
-func registerReadTools(s *server.MCPServer, d Deps) {
+func registerReadTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("getJiraIssue",
 		mcp.WithDescription("Get a Jira work item by ID or key."),
 		mcp.WithTitleAnnotation("Get issue"),

@@ -52,7 +52,11 @@ type Options struct {
 }
 
 // Register wires every enabled tool group onto the MCP server.
-func (d Deps) Register(s *server.MCPServer, opts Options) {
+func (d Deps) Register(server *server.MCPServer, opts Options) {
+	// One wrapper, so every tool registered below is argument-checked without
+	// any of them having to remember. See strict.go for why.
+	s := newRegistrar(server)
+
 	registerReadTools(s, d)
 	registerMetadataTools(s, d)
 	registerSearchTools(s, d)

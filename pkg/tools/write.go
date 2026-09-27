@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -16,7 +15,7 @@ import (
 
 // registerIssueWriteTools wires the mutating tools that are available against
 // jirrabit's current REST surface.
-func registerIssueWriteTools(s *server.MCPServer, d Deps) {
+func registerIssueWriteTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("createJiraIssue",
 		mcp.WithDescription("Create a new Jira work item."),
 		mcp.WithTitleAnnotation("Create issue"),
@@ -78,6 +77,11 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		// Argument validation happens before the instance is resolved: a bad
 		// argument is a client mistake, and reporting it as a connection
 		// problem sends the caller looking in the wrong place.
+		// Only the keys that have always been named arguments count as
+		// duplicates. priority_id, status_id and sprint_id now have named
+		// arguments too, but they were reachable through `fields` before that and
+		// an agent using the older spelling should keep working; the named
+		// argument simply wins if both are sent.
 		extra, err := normaliseFields(args.Fields, map[string]bool{
 			"summary": true, "description": true, "story_points": true,
 			"due_date": true, "issue_type_id": true, "assignee_id": true,
@@ -124,6 +128,17 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 			}
 			payload["assignee_id"] = assignee
 		}
+		// A named argument wins over the same key inside `fields`: it was the
+		// more specific thing the caller said.
+		for key, value := range map[string]*int{
+			"priority_id": args.PriorityID,
+			"status_id":   args.StatusID,
+			"sprint_id":   args.SprintID,
+		} {
+			if value != nil {
+				payload[key] = *value
+			}
+		}
 		for key, value := range extra {
 			payload[key] = value
 		}
@@ -146,6 +161,9 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 
 		// Validated before the instance is resolved, so an argument mistake is
 		// reported as an argument mistake.
+		// As on create: the long-standing named arguments are duplicates, the
+		// newly-named ids are accepted here and overridden if also given
+		// directly.
 		extra, err := normaliseFields(args.Fields, map[string]bool{
 			"summary": true, "description": true, "story_points": true,
 			"due_date": true, "assignee_id": true,
@@ -196,6 +214,16 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 				return toolError(err)
 			}
 			payload["assignee_id"] = id
+		}
+		// As on create: a named argument beats the same key inside `fields`.
+		for key, value := range map[string]*int{
+			"priority_id": args.PriorityID,
+			"status_id":   args.StatusID,
+			"sprint_id":   args.SprintID,
+		} {
+			if value != nil {
+				payload[key] = *value
+			}
 		}
 		for key, value := range extra {
 			payload[key] = value

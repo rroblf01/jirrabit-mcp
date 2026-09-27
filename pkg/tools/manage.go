@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -13,7 +12,7 @@ import (
 // registerManageTools wires project administration, gated behind
 // JIRRABIT_MCP_ENABLE_MANAGE. Atlassian gates the equivalent tools the same way,
 // because creating and reconfiguring spaces is an operator-level action.
-func registerManageTools(s *server.MCPServer, d Deps) {
+func registerManageTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("updateJiraProject",
 		mcp.WithDescription("Update settings on an existing space. Only the fields you pass are changed."),
 		mcp.WithTitleAnnotation("Update project"),

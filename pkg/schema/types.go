@@ -51,7 +51,10 @@ type CreateIssueArgs struct {
 	Assignee      string         `json:"assignee,omitempty" jsonschema:"Username to assign the issue to. Must belong to the project"`
 	DueDate       string         `json:"dueDate,omitempty" jsonschema:"Due date as YYYY-MM-DD"`
 	StoryPoints   *int           `json:"storyPoints,omitempty" jsonschema:"Story point estimate"`
-	Fields        map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, e.g. {\"labels\": [\"backend\"]}"`
+	PriorityID    *int           `json:"priorityId,omitempty" jsonschema:"Priority id, from listJiraPriorities. Atlassian's own tool has this field, so an agent trained on it will send it"`
+	StatusID      *int           `json:"statusId,omitempty" jsonschema:"Initial status id, from listJiraStatuses. A disallowed transition is rejected by jirrabit's workflow"`
+	SprintID      *int           `json:"sprintId,omitempty" jsonschema:"Sprint to add the issue to, from listJiraSprints"`
+	Fields        map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, using jirrabit's own field names, e.g. {\"labels\": [\"backend\"]}"`
 }
 
 // EditIssueArgs is the input of editJiraIssue.
@@ -63,7 +66,10 @@ type EditIssueArgs struct {
 	Assignee     *string        `json:"assignee,omitempty" jsonschema:"New assignee username. Use an empty string to unassign"`
 	StoryPoints  *int           `json:"storyPoints,omitempty" jsonschema:"New story point estimate"`
 	DueDate      *string        `json:"dueDate,omitempty" jsonschema:"New due date as YYYY-MM-DD. Use an empty string to clear"`
-	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, for ids with no named argument: statusId, priorityId, sprintId. A status change here is validated against the issue's workflow, and a disallowed one is rejected. An unrecognised key is an error rather than ignored"`
+	StatusID     *int           `json:"statusId,omitempty" jsonschema:"New status id, from listJiraStatuses. Validated against the issue's workflow, and a disallowed transition is rejected"`
+	PriorityID   *int           `json:"priorityId,omitempty" jsonschema:"New priority id, from listJiraPriorities"`
+	SprintID     *int           `json:"sprintId,omitempty" jsonschema:"Sprint to move the issue to, from listJiraSprints"`
+	Fields       map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, using jirrabit's own field names. An unrecognised key is an error rather than ignored"`
 }
 
 // --- comments --------------------------------------------------------------

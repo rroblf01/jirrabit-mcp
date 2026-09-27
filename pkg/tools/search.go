@@ -6,7 +6,6 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/jira"
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
@@ -17,7 +16,7 @@ import (
 // This is the tool an agent calls first, and the one the rest of the session
 // hangs off: almost every other Jira question starts with "find the issues
 // where…".
-func registerSearchTools(s *server.MCPServer, d Deps) {
+func registerSearchTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("searchJiraIssuesUsingJql",
 		mcp.WithDescription(
 			"Search Jira work items using JQL. Returns a page of results plus a "+

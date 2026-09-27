@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/rroblf01/jirrabit-mcp/pkg/schema"
 )
@@ -17,7 +16,7 @@ import (
 // jirrabit models watching as a set on the issue, with no notion of a
 // notification preference attached, so watch and unwatch map onto add and
 // remove rather than onto Jira's richer watcher configuration.
-func registerWatchTools(s *server.MCPServer, d Deps) {
+func registerWatchTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("watchJiraIssue",
 		mcp.WithDescription(
 			"Watch or unwatch a Jira work item. Watching means the caller is notified "+

@@ -13,8 +13,36 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
 ## [Unreleased]
 
-Nothing has been published yet, so there is no released version to compare
-against. Everything below is on `main`.
+### Added
+
+- **Unknown arguments are rejected, with the valid ones listed** and the closest
+  match suggested. Found by running a real 9B model against a real deployment:
+  `createJiraIssue` was quietly discarding `priorityId`, a field Atlassian's own
+  tool has, so an agent trained on it produced an issue with no priority and no
+  explanation. Turning the check on surfaced it at once, and `flowtest` failed 26
+  checks until the schema was fixed rather than the check relaxed.
+- `priorityId`, `statusId` and `sprintId` are now first-class arguments on
+  `createJiraIssue` and `editJiraIssue`. jirrabit's API accepted all three and
+  the MCP only reached them through the free-form `fields` object, so nothing
+  told an agent they existed. Sending one in both places is not an error: the
+  named argument wins.
+
+### Fixed
+
+- The server instructions promised a default instance on servers that have none,
+  which is every shared deployment and therefore the main one. The sentence is
+  now chosen from the server's own configuration, so an agent is told either to
+  pass both arguments or that it may omit them, and is never told a promise the
+  server cannot keep.
+- The README documents the binary at `/jirrabit-mcp` rather than
+  `/usr/local/bin/jirrabit-mcp`. The image is built `FROM scratch`, so there is
+  no directory tree beyond what the image puts there, and no shell to
+  `docker exec` into.
+
+## [1.0.0] - 2026-09-27
+
+The first release. The image published on this tag is what
+`https://jirrabit-mcp.ricardorobles.es/mcp` is running.
 
 ### Added
 
@@ -61,13 +89,14 @@ against. Everything below is on `main`.
   questioned.
 - **The target guard refuses loopback and link-local addresses** and never
   follows redirects, which closes the obvious SSRF pivots including the
-  `169.254.169.254` metadata endpoint.
+  `169.254.169.254` metadata endpoint. A consequence worth knowing: a host-side
+  client cannot reach an instance at `localhost`, and has to use a name the
+  server can resolve.
 - **Keys are never logged and never a cache key.** Clients are pooled on
   `url|sha256(key)`, swept after ten minutes unused, and a rotated key stops
   being used without a restart.
-- `getJiraIssue` and the write tools carry read-only, destructive, idempotent and
-  open-world hints, because agents read them before calling. All 27 tools carry
-  all four.
+- All 27 tools carry read-only, destructive, idempotent and open-world hints,
+  because agents read them before calling.
 
 ### Fixed
 
@@ -95,7 +124,10 @@ against. Everything below is on `main`.
 - `updateJiraSprint` does not close a sprint, because jirrabit's close carries
   unfinished issues to another sprint and no endpoint does only that. The tool
   description says so rather than letting an agent assume.
+- An issue's detail payload does not include its worklogs. Read them with
+  `listJiraIssueWorklogs`.
 - Outbound HTTP is not dispatched anywhere: this server calls jirrabit's REST API
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.0.0]: https://github.com/rroblf01/jirrabit-mcp/releases/tag/v1.0.0

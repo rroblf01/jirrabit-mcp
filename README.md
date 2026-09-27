@@ -3,6 +3,40 @@
 An MCP (Model Context Protocol) server that puts a [jirrabit](https://github.com/rroblf01/jirrabit)
 instance behind Atlassian's Jira tool vocabulary.
 
+## Try it in one minute
+
+A public instance is already running, against a public jirrabit you can also look
+at in a browser. No account, no install, no API key of your own:
+
+```json
+{
+  "mcp": {
+    "jirrabit": {
+      "type": "http",
+      "url": "https://jirrabit-mcp.ricardorobles.es/mcp"
+    }
+  }
+}
+```
+
+Then, on any tool call, pass the instance and the published demo token:
+
+```json
+{
+  "instanceUrl": "https://jirrabit.ricardorobles.es",
+  "apiKey": "jirrabit-public-demo-token-2026-do-not-use"
+}
+```
+
+That is the whole setup, and it is the same for everyone who reads this file,
+because the demo is meant to be public. To see the data without an agent, open
+<https://jirrabit.ricardorobles.es> and log in as `alice_pm` / `demopass`.
+
+Against your own jirrabit, change `instanceUrl` and use a key from your
+profile's **API keys** page. Nothing about your instance is stored here: every
+call carries its own credentials, so one deployment serves as many instances as
+point at it.
+
 It registers the tool names, parameter names and payload shapes an agent already
 learned from the official Atlassian Jira MCP server — `getJiraIssue`,
 `searchJiraIssuesUsingJql`, `createJiraIssue`, `transitionJiraIssue`,
@@ -19,6 +53,11 @@ This server is multi-tenant. Every tool takes `instanceUrl` and `apiKey`, so a
 single deployed instance serves any number of jirrabit deployments — each caller
 reaches their own with their own credentials, and this server stores none of
 them.
+
+An argument a tool does not declare is an error that lists the ones it does, and
+usually names the one you meant. That is deliberate: a misspelled argument used
+to be dropped in silence, so `createJiraIssue` reported success and stored no
+issue type at all when sent `issueType` instead of `issueTypeName`.
 
 ```
 "arguments": {
