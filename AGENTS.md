@@ -40,6 +40,22 @@ one without the other is a startup error, because a URL with no key can only mea
 "use a key I was never given". Setting both is the convenience case for a
 personal single-instance server; leaving both unset is the shared case.
 
+A default instance is a convenience for a server you run alone and a leak on one
+you publish: any caller who supplies no `instanceUrl` — including every caller
+whose own key is missing or rejected — is served with the operator's key and reads
+the operator's data. So `run()` refuses to start when a default instance meets a
+publicly-reachable listener, which is `-transport http` on anything but loopback.
+Over stdio the client spawned the process, and a loopback bind is a private
+server, so neither needs `JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE=1`; being precise
+about *which* deployments are dangerous is what keeps the guard from being
+friction every legitimate user has to work around. `publiclyReachable` assumes
+the safe answer for an unparseable listen address and for a hostname in one.
+
+`JIRRABIT_MCP_ALLOWED_HOSTS` is the control that makes a *published* server safe,
+and it is checked per call, not once at start-up. Unset means any host that is
+not loopback or link-local, which is right for a trusted LAN. Matching is exact
+per entry, except that a leading dot matches a domain and its subdomains.
+
 A key supplied without an instance is rejected rather than applied to the
 default, so one user's credentials can never be sent to another user's data.
 
@@ -66,10 +82,14 @@ stdio — the client spawns the binary, no port and no network listener:
 streamable HTTP — for running the server as a service:
 
 ```bash
-JIRRABIT_URL=… JIRRABIT_API_KEY=… ./bin/jirrabit-mcp -transport http
+JIRRABIT_URL=… JIRRABIT_API_KEY=… \
+  ./bin/jirrabit-mcp -transport http -addr 127.0.0.1:8082
 ```
 
-The client then connects to `http://<host>:8082/mcp`.
+The client then connects to `http://<host>:8082/mcp`. Binding to loopback and
+terminating in a proxy is the shape to prefer: it is the only way to run a
+default instance without acknowledging it, because `-addr :8082` listens on every
+interface and the server will refuse to start alongside a default instance.
 
 ## Architecture
 
@@ -86,6 +106,7 @@ cmd/multitenancy/          # proves two instances can be served over one connect
 internal/probe/            # lists a server's registered tools over stdio
 pkg/jira/client.go         # HTTP client for jirrabit's /api/v1/, bearer auth, retries
 pkg/jira/pool.go           # per-call instance resolution, client cache, SSRF guard
+pkg/jira/policy.go         # operator allowlist for the instances this server will call
 pkg/jira/validate.go       # confirms a (url, key) pair really addresses a jirrabit
 pkg/jira/errors.go         # maps jirrabit's {"detail": …} envelope onto MCP tool errors
 pkg/jira/dto.go            # jirrabit's wire types
@@ -119,6 +140,13 @@ from.
 - **`nextPageToken` is synthesized.** jirrabit paginates with `page`/`size`;
   agents expect a cursor. `cursor.go` encodes the position in an opaque token so
   the cursor-shaped contract holds even though the backend is offset-based.
+- **The allowlist is applied to caller-supplied URLs only, and never to the
+  operator's default.** An operator who set `JIRRABIT_URL` meant it, and their
+  own server may be reachable only at an address the allowlist would refuse. The
+  bug that shaped this: `p.allowed` was first assigned inside
+  `if opts.Validator != nil`, so the allowlist silently vanished for any pool
+  built without a validator — an allowlist that can be switched off by accident
+  is not an allowlist.
 - **Clients are cached, keys are not logged.** The pool keys entries on
   `url|sha256(key)`, never the secret itself, and the cache key is swept on a TTL
   so a rotated or forgotten key stops being used.

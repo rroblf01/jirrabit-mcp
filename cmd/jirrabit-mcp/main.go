@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -166,6 +167,31 @@ func run(transport, addr, path string) error {
 	if defaultURL != "" && defaultKey == "" {
 		return errors.New("JIRRABIT_URL is set but JIRRABIT_API_KEY is not; supply both, or neither to require callers to name their own instance")
 	}
+	// A default instance on a server anyone can reach is not a convenience, it
+	// is a leak: every caller whose own credentials are missing or rejected
+	// silently spends the operator's key, on the operator's data, and the caller
+	// walks away with the results. It therefore needs acknowledging — but only
+	// where it is actually dangerous, because a client that spawns this binary
+	// over stdio is single-user by construction, and a listener on loopback is
+	// reachable only from this host. Neither needs a second environment
+	// variable to do the obvious thing.
+	if defaultURL != "" && publiclyReachable(transport, addr) && !truthy(os.Getenv("JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE")) {
+		return errors.New(
+			"JIRRABIT_URL is set and this server is listening on " + addr + ", so every caller " +
+				"who supplies no instance would be served with this server's API key and could " +
+				"read its data. A server bound to loopback, or one your client spawns over stdio, " +
+				"needs no acknowledgement — this one does. Either set " +
+				"JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE=1 to accept it deliberately, unset " +
+				"JIRRABIT_URL and JIRRABIT_API_KEY so callers must name their own instance, or " +
+				"bind to 127.0.0.1 and put a reverse proxy in front")
+	}
+
+	// The allowlist is the control that makes a published server safe. Its
+	// absence is worth a log line rather than silence, because "everyone can use
+	// it" and "anyone can make it fetch any URL on my network" are the same
+	// server with this setting on or off.
+	allowedHosts := jira.NewHostPolicy(os.Getenv("JIRRABIT_MCP_ALLOWED_HOSTS"))
+	log.Printf("[%s] instance allowlist: %s", serverName, allowedHosts.Describe())
 
 	pool := jira.NewPool(jira.PoolOptions{
 		DefaultBaseURL: defaultURL,
@@ -173,6 +199,7 @@ func run(transport, addr, path string) error {
 		Timeout:        timeout,
 		MaxRetries:     retries,
 		Validator:      jira.ValidateJiraTarget,
+		AllowedHosts:   allowedHosts,
 	})
 
 	srv := server.NewMCPServer(
@@ -292,7 +319,49 @@ func displayAddr(addr string) string {
 	return "http://" + addr
 }
 
+// publiclyReachable reports whether this process is a server on a network
+// interface other hosts can open a connection to.
+//
+// The distinction decides whether a default instance is a convenience or a
+// disclosure. Over stdio the client started this process and speaks to it over
+// pipes, so there is exactly one caller and it is the user. An HTTP listener on
+// a loopback address is reachable only from this machine, which is what a
+// private server behind a same-host reverse proxy looks like. Anything else —
+// the wildcard ":8082", a specific public IP, a container's bridge address —
+// means strangers can reach it.
+func publiclyReachable(transport, addr string) bool {
+	if transport != "http" && transport != "streamable-http" && transport != "streamablehttp" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// An addr we cannot parse is one we should not assume is private.
+		return true
+	}
+	if host == "" {
+		// The wildcard bind: every interface, including the public one.
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// A hostname in the listen address. Loopback spelled as a name is the
+		// only one that can be reasoned about here; anything else is a public
+		// interface by assumption.
+		return !strings.EqualFold(host, "localhost")
+	}
+	return !ip.IsLoopback()
+}
+
 // --- env helpers -----------------------------------------------------------
+
+// truthy parses the spellings a human actually types for a boolean.
+func truthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
 
 // envOr reads an environment variable, falling back to a default.
 func envOr(name, fallback string) string {

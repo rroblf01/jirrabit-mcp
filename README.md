@@ -92,6 +92,8 @@ Everything is environment variables; there is no config file. See
 |---|---|---|
 | `JIRRABIT_URL` | — | Optional default instance |
 | `JIRRABIT_API_KEY` | — | Optional default instance's key |
+| `JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE` | `0` | Acknowledge a default instance on a publicly-reachable listener |
+| `JIRRABIT_MCP_ALLOWED_HOSTS` | — | Allowlist of instance hosts. `a.com,b.com`, or `.b.com` for a domain and its subdomains |
 | `JIRRABIT_TIMEOUT` | `30` | Per-request timeout, seconds |
 | `JIRRABIT_MAX_RETRIES` | `2` | Retries for transport errors and 502/503/504 |
 | `JIRRABIT_MCP_ENABLE_DELETE` | `false` | Register `deleteJiraIssue` |
@@ -103,6 +105,24 @@ Everything is environment variables; there is no config file. See
 `JIRRABIT_URL` and `JIRRABIT_API_KEY` must be set together or not at all. One
 without the other is a startup error: a URL with no key can only mean "use a key
 I was never given".
+
+A default instance is a convenience for a server you run for yourself, and a leak
+on one you publish: any caller who supplies no `instanceUrl` — including every
+caller whose own key is missing or rejected — is silently served with the
+operator's key and walks away with the result.
+
+So the server refuses to start when it has **both** a default instance **and** a
+listener strangers can reach: `-transport http` on anything but loopback, which
+is the wildcard `:8082`, a public IP, or a container address. It does not object
+over stdio, where your client spawned the process and there is only one caller,
+nor on a loopback address, which is what a private server behind a same-host
+reverse proxy looks like. Set `JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE=1` to override
+when you have decided, or bind to `127.0.0.1`. The error is a refusal rather than
+a warning because the mistake is invisible until someone else's agent has read
+your data.
+
+`JIRRABIT_MCP_ALLOWED_HOSTS` is the control that makes a published server safe;
+see [Publishing a shared server](#publishing-a-shared-server).
 
 The destructive and project-administration tools are off by default, mirroring
 the reference server's behaviour. Turning them on changes tool *visibility*;
@@ -268,7 +288,69 @@ go run ./cmd/isolationtest -server ./bin/jirrabit-mcp \
 JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./internal/probe ./bin/jirrabit-mcp
 ```
 
-## Deploying on a VPS
+## Publishing a shared server
+
+So that anyone can use their own jirrabit through **your** URL, without
+downloading or building anything: run the streamable HTTP transport, put it
+behind TLS, and let each caller name their own instance.
+
+```bash
+docker run -d --name jirrabit-mcp -p 127.0.0.1:8082:8082 \
+  -e JIRRABIT_MCP_ALLOWED_HOSTS='.example.com' \
+  ghcr.io/rroblf01/jirrabit-mcp:latest
+```
+
+A client then points at your endpoint and supplies its own credentials on every
+call — no install, no account with you:
+
+```json
+{
+  "mcp": {
+    "jirrabit": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+```
+"arguments": { "instanceUrl": "https://mi.empresa.com", "apiKey": "…" }
+```
+
+Nothing about the caller's instance or key is stored here. The pool caches a
+client per `url|sha256(key)` for ten minutes so connections are reused, and drops
+it afterwards; the key itself is never a map key, never logged, and never
+written to disk.
+
+Four things to decide before you publish.
+
+**The endpoint has no authentication of its own.** Authorisation happens per
+tool call through the caller's `apiKey` — this server never checks whether the
+*caller* is entitled to make calls. So put it behind something that does: a
+reverse proxy with rate limiting, a shared secret, or an identity-aware proxy.
+An open endpoint on the public internet can be used by anyone to spend your
+outbound bandwidth.
+
+**Set `JIRRABIT_MCP_ALLOWED_HOSTS`.** A server that will fetch any URL it is
+handed is a proxy, and one on a host with a private network attached can be
+pointed at that network. The built-in guard refuses loopback and link-local
+addresses (so not `169.254.169.254`) and never follows redirects, which closes
+the obvious pivots, but a caller can still name `10.0.0.0/8` and read the answer
+back through a tool result. The allowlist is exact by default — `a.com` matches
+only `a.com`, and `a.com.evil.net` is not a match — and `.example.com` matches
+that domain and every subdomain. Leave it unset only for a private server on a
+trusted network.
+
+**Leave `JIRRABIT_URL` unset.** It is refused outright unless you also set
+`JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE=1`, and a shared server has no business
+having one. Anyone whose own key is missing would otherwise be served yours.
+
+**Require HTTPS at the proxy.** The transport speaks plain HTTP; terminate TLS in
+front of it. Also forward the client's address if you rate limit, and give the
+container a read-only filesystem with no secrets mounted.
+
+### Deploying on a VPS
 
 1. `docker compose up -d` — or run the binary behind your own TLS terminator.
 2. Put it behind a reverse proxy if it should not be reachable directly. The
@@ -276,7 +358,9 @@ JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./internal/probe ./bin/jirrabit-mcp
    call through the caller's `apiKey`, but nothing stops an unauthenticated
    client from making calls. Anyone who reaches the endpoint can consume it.
 3. If jirrabit is on the same host and reachable by name, set `JIRRABIT_URL` to
-   it. If jirrabit is in a container, add `host.docker.internal` to jirrabit's
+   it. On a publicly-reachable listener that also needs
+   `JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE=1`, or the server refuses to start. If
+   jirrabit is in a container, add `host.docker.internal` to jirrabit's
    `JIRRABIT_ALLOWED_HOSTS`, or Django answers 400.
 4. Pin to a release rather than tracking `latest`.
 

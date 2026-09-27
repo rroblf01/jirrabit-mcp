@@ -30,6 +30,7 @@ type Pool struct {
 	ttl        time.Duration
 	maxEntries int
 	validator  func(ctx context.Context, c *Client) error
+	allowed    *HostPolicy
 	mu         sync.Mutex
 	clients    map[string]*pooledClient
 }
@@ -56,6 +57,10 @@ type PoolOptions struct {
 	// Validator confirms a (url, key) pair actually addresses a jirrabit before
 	// the pair is cached. Optional; see Validate.
 	Validator func(ctx context.Context, c *Client) error
+	// AllowedHosts is the operator's allowlist for a server anyone may point at
+	// any URL. Nil allows every host that passes ValidateTarget. See
+	// NewHostPolicy and JIRRABIT_MCP_ALLOWED_HOSTS.
+	AllowedHosts *HostPolicy
 }
 
 const (
@@ -81,6 +86,11 @@ func NewPool(opts PoolOptions) *Pool {
 		timeout:        opts.Timeout,
 		maxRetries:     opts.MaxRetries,
 		clients:        make(map[string]*pooledClient),
+		// Not in the conditional below: the allowlist and the validator are
+		// unrelated concerns, and an allowlist that only takes effect when a
+		// validator happens to be configured is an allowlist that can be
+		// switched off by accident.
+		allowed: opts.AllowedHosts,
 	}
 	if opts.Validator != nil {
 		p.validator = opts.Validator
@@ -126,6 +136,13 @@ func (p *Pool) Resolve(ctx context.Context, baseURL, apiKey string) (*Client, er
 	// name those.
 	if callerSupplied {
 		if err := ValidateTarget(trimmedURL); err != nil {
+			return nil, err
+		}
+		// The allowlist is checked per call, not once at start-up, because a
+		// hosted server is configured once and then fed URLs by strangers. It is
+		// deliberately not applied to the operator's own default: an operator who
+		// set that URL meant it.
+		if err := p.allowed.CheckTarget(trimmedURL); err != nil {
 			return nil, err
 		}
 	}

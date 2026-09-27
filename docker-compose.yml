@@ -7,7 +7,13 @@ services:
       # Every setting is optional here. With JIRRABIT_URL and JIRRABIT_API_KEY
       # unset, this is a shared server: each caller names its own instance with
       # the instanceUrl and apiKey tool arguments. Set both in .env to give
-      # callers a default instance and let them omit the arguments.
+      # callers a default instance and let them omit the arguments — but note
+      # that the port below is published on every interface, so the server
+      # refuses to start in that combination unless .env also sets
+      # JIRRABIT_MCP_ALLOW_DEFAULT_INSTANCE=1.
+      #
+      # A deployment reachable from the internet should set
+      # JIRRABIT_MCP_ALLOWED_HOSTS, or it will fetch whatever URL it is handed.
       - path: .env
         required: false
     environment:
