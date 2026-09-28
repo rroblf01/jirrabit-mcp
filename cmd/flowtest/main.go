@@ -121,6 +121,33 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 	check("getJiraCurrentUser", err == nil && jsonString(me, "accountId") != "", errStr(err))
 	check("identity is the demo superuser", jsonString(me, "accountId") == "alice_pm",
 		jsonString(me, "accountId"))
+	originalName := jsonString(me, "displayName")
+	updated, err := call(ctx, session, "updateJiraCurrentUser", map[string]any{
+		"displayName": "flowtest",
+	})
+	check("updateJiraCurrentUser changes the caller's own display name",
+		err == nil && nestedString(updated, "user", "display_name") == "flowtest",
+		errStr(err)+" "+truncate(updated, 160))
+	if err == nil {
+		// Restore it in the same block: the demo user is shared, and a display
+		// name left as "flowtest" would confuse the next run's assertions.
+		restored, err := call(ctx, session, "updateJiraCurrentUser", map[string]any{
+			"displayName": originalName,
+		})
+		check("the display name is restored afterwards",
+			err == nil && nestedString(restored, "user", "display_name") == originalName,
+			errStr(err))
+	}
+	_, err = call(ctx, session, "updateJiraCurrentUser", map[string]any{
+		"palette": "chartreuse",
+	})
+	check("updateJiraCurrentUser names the valid palettes on a bad one",
+		err != nil && strings.Contains(err.Error(), "blue"),
+		fmt.Sprint(err))
+	_, err = call(ctx, session, "updateJiraCurrentUser", map[string]any{})
+	check("updateJiraCurrentUser with an empty body says what it accepts",
+		err != nil && strings.Contains(err.Error(), "displayName"),
+		fmt.Sprint(err))
 
 	projects, err := call(ctx, session, "listJiraProjects", nil)
 	// Resolved here so every later assertion can be about *this* instance's
@@ -217,6 +244,35 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 		truncate(after, 120))
 	_ = edited
 
+	// The estimate fields ride the same PATCH. Seconds on the wire, minutes in
+	// the arguments: the mapping is the thing being checked, not just arrival.
+	// Matched as fragments, not with nestedString, which only reads JSON
+	// strings and these two are numbers — a check written the other way passes
+	// only when the fields are absent, which is exactly backwards.
+	_, err = call(ctx, session, "editJiraIssue", map[string]any{
+		"issueIdOrKey": key, "estimateMinutes": 480, "timeRemainingMinutes": 300,
+	})
+	check("editJiraIssue writes estimate and remaining", err == nil, errStr(err))
+	timed, _ := call(ctx, session, "getJiraIssue", map[string]any{"issueIdOrKey": key})
+	check("estimate and remaining come back in seconds",
+		strings.Contains(timed, `"timeoriginalestimate":28800`) &&
+			strings.Contains(timed, `"remainingEstimateSeconds":18000`),
+		truncate(timed, 200))
+
+	// Cloning copies the work, not the history. The copy gets the edited
+	// summary rather than the created one, so the check reads what the clone
+	// was made from rather than what the fixture said.
+	cloned, err := call(ctx, session, "cloneJiraIssue", map[string]any{
+		"issueIdOrKey": key,
+	})
+	check("cloneJiraIssue copies the issue", err == nil, errStr(err))
+	check("the clone carries the [clon] prefix and no subtasks",
+		strings.Contains(cloned, "[clon] Flujo MCP: resumen editado") &&
+			strings.Contains(cloned, `"subtasks":[]`),
+		truncate(cloned, 200))
+	_, err = call(ctx, session, "cloneJiraIssue", map[string]any{})
+	check("cloneJiraIssue refuses an empty body", err != nil, "it was accepted")
+
 	fmt.Println("\n[3] status transitions")
 	moved, err := call(ctx, session, "editJiraIssue", map[string]any{
 		"issueIdOrKey": key,
@@ -288,16 +344,15 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 	check("the worklog is in Jira's time format", strings.Contains(worklogs, "4500"),
 		"1h 15m should be 4500 timeSpentSeconds: "+truncate(worklogs, 200))
 
-	// Arguments jirrabit cannot honour used to be accepted and thrown away, so
-	// "log 2h against Tuesday and reduce the estimate by 2h" returned success
-	// with an entry timestamped now and an untouched estimate. Each is now
-	// refused, and refused before anything is written.
+	// Estimate arguments jirrabit cannot honour used to be accepted and thrown
+	// away, so "log 2h against Tuesday and reduce the estimate by 2h" returned
+	// success with an entry timestamped now and an untouched estimate. Each is
+	// now refused before anything is written, and routed to editJiraIssue,
+	// which is where estimates live.
 	before, _ := call(ctx, session, "listJiraIssueWorklogs", map[string]any{"issueIdOrKey": key})
-	for _, dropped := range []string{"started", "newEstimate", "adjustEstimate", "reduceBy"} {
+	for _, dropped := range []string{"newEstimate", "adjustEstimate", "reduceBy"} {
 		args := map[string]any{"issueIdOrKey": key, "timeSpent": "10m"}
 		switch dropped {
-		case "started":
-			args["started"] = "2026-01-05T09:00:00.000+0000"
 		case "newEstimate":
 			args["newEstimate"] = "3h"
 		case "adjustEstimate":
@@ -306,13 +361,35 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 			args["reduceBy"] = "30m"
 		}
 		_, err := call(ctx, session, "addOrEditJiraIssueWorklog", args)
-		check("a worklog "+dropped+" is refused, not silently dropped", err != nil,
+		check("a worklog "+dropped+" is refused and routed to editJiraIssue", err != nil &&
+			strings.Contains(err.Error(), "editJiraIssue"),
 			"the call succeeded, so it logged something "+dropped+" cannot express")
 	}
 	worklogsAfter, _ := call(ctx, session, "listJiraIssueWorklogs", map[string]any{"issueIdOrKey": key})
 	check("none of the refused worklogs were written",
 		jsonString(before, "total") == jsonString(worklogsAfter, "total"),
 		"before "+jsonString(before, "total")+" after "+jsonString(worklogsAfter, "total"))
+
+	// started is honoured now: the entry carries the date it was given, and an
+	// edit moves it. The point of the worklogId argument is that correcting
+	// "3h" to "2h" must not lose the original date to a delete plus recreate.
+	backdated, err := call(ctx, session, "addOrEditJiraIssueWorklog", map[string]any{
+		"issueIdOrKey": key, "timeSpent": "30m", "started": "2026-09-20T14:00:00+02:00",
+	})
+	check("a worklog started date is stored, not stamped as now",
+		err == nil && strings.Contains(backdated, "2026-09-20"),
+		errStr(err)+" "+truncate(backdated, 160))
+	worklogID := firstID(backdated)
+	corrected, err := call(ctx, session, "addOrEditJiraIssueWorklog", map[string]any{
+		"issueIdOrKey": key, "worklogId": strconv.Itoa(worklogID), "timeSpent": "45m",
+	})
+	check("correcting an entry edits it in place",
+		err == nil && strings.Contains(corrected, "45m"),
+		errStr(err)+" "+truncate(corrected, 160))
+	_, err = call(ctx, session, "addOrEditJiraIssueWorklog", map[string]any{
+		"issueIdOrKey": key, "worklogId": strconv.Itoa(worklogID), "started": "not-a-date",
+	})
+	check("a correction with a bad date is refused", err != nil, "it was accepted")
 
 	// Same shape on a comment: jirrabit has no groups or roles, so a
 	// "restricted" comment would have come back public with no hint.
@@ -515,6 +592,37 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 	check("getJiraProjectActivity answers who and when, with no gaps",
 		err == nil && strings.Contains(activity, "values"),
 		errStr(err)+truncate(activity, 240))
+
+	// Analytics are data, not markup: the same aggregation as the web pages,
+	// so a standup question does not need a changelog download to answer.
+	sla, err := call(ctx, session, "getJiraProjectSla", map[string]any{
+		"projectKeyOrId": projectKey,
+	})
+	check("getJiraProjectSla answers with a threshold and a count",
+		err == nil && strings.Contains(sla, `"threshold_days":7`) &&
+			strings.Contains(sla, `"count":`),
+		errStr(err)+" "+truncate(sla, 200))
+	burndown, err := call(ctx, session, "getJiraProjectBurndown", map[string]any{
+		"projectKeyOrId": projectKey,
+	})
+	// The demo has sprints and a scratch one often has none, so the shape is
+	// asserted rather than the content: a chart object with a velocity list.
+	check("getJiraProjectBurndown answers a chart, not markup",
+		err == nil && strings.Contains(burndown, `"velocity":`) &&
+			strings.Contains(burndown, `"points":`),
+		errStr(err)+" "+truncate(burndown, 200))
+	_, err = call(ctx, session, "getJiraProjectBurndown", map[string]any{
+		"projectKeyOrId": projectKey, "sprintId": 999999,
+	})
+	check("getJiraProjectBurndown refuses an unknown sprint", err != nil,
+		"it was accepted")
+	reports, err := call(ctx, session, "getJiraProjectReports", map[string]any{
+		"projectKeyOrId": projectKey,
+	})
+	check("getJiraProjectReports answers throughput, cycle and WIP",
+		err == nil && strings.Contains(reports, `"throughput":`) &&
+			strings.Contains(reports, `"cycle":`) && strings.Contains(reports, `"wip":`),
+		errStr(err)+" "+truncate(reports, 240))
 
 	// Attachments: a data: URL, because jirrabit has no filesystem to read from.
 	uploaded, err := call(ctx, session, "addJiraAttachment", map[string]any{
@@ -836,11 +944,24 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 	})
 	check("createJiraIssueTemplate creates one", err == nil && strings.Contains(template, "Informe de flujo"),
 		errStr(err)+" "+truncate(template, 140))
-	templateID := firstID(template)
+	templateID := nestedID(template, "issueTemplate", "id")
 	templates, err := call(ctx, session, "listJiraIssueTemplates",
 		map[string]any{"projectKeyOrId": projectKey})
 	check("listJiraIssueTemplates shows it", err == nil && strings.Contains(templates, "Informe de flujo"),
 		errStr(err)+" "+truncate(templates, 140))
+	renamed, err := call(ctx, session, "updateJiraIssueTemplate", map[string]any{
+		"projectKeyOrId": projectKey, "templateId": templateID,
+		"summary": "plantilla corregida",
+	})
+	check("updateJiraIssueTemplate edits the defaults in place",
+		err == nil && strings.Contains(renamed, "plantilla corregida"),
+		errStr(err)+" "+truncate(renamed, 160))
+	_, err = call(ctx, session, "updateJiraIssueTemplate", map[string]any{
+		"projectKeyOrId": projectKey, "templateId": templateID,
+	})
+	check("updateJiraIssueTemplate with an empty body says what it accepts",
+		err != nil && strings.Contains(err.Error(), "summary"),
+		fmt.Sprint(err))
 
 	// One suffix per run, so the two unique names this section creates do not
 	// collide with a previous run that was interrupted before its cleanup.

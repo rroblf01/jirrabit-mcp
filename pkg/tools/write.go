@@ -26,6 +26,25 @@ func registerIssueWriteTools(s *registrar, d Deps) {
 		mcp.WithInputSchema[schema.CreateIssueArgs](),
 	), createJiraIssue(d))
 
+	s.AddTool(mcp.NewTool("cloneJiraIssue",
+		mcp.WithDescription(
+			"Copy a work item: summary, description, type, priority, assignee, labels, "+
+				"epic, story points, estimate and due date. The reporter becomes the caller, "+
+				"because the person who asked for the copy owns it.\n\n"+
+				"What is not copied is the point: no subtasks unless includeSubtasks says so, "+
+				"and never comments, history, attachments, links or logged time — the copy "+
+				"starts fresh. Neither is the archived flag: a copy of an archived issue is "+
+				"an active issue.\n\n"+
+				"Give summary to name the copy, or omit it for the UI's own '[clon] ...' "+
+				"spelling. Give sprintId to place it straight into a sprint."),
+		mcp.WithTitleAnnotation("Clone issue"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.CloneIssueArgs](),
+	), cloneJiraIssue(d))
+
 	s.AddTool(mcp.NewTool("editJiraIssue",
 		mcp.WithDescription("Edit an existing work item; only fields you pass are changed. To change status, use transitionJiraIssue — jirrabit enforces its workflow there."),
 		mcp.WithTitleAnnotation("Edit issue"),
@@ -57,7 +76,12 @@ func registerIssueWriteTools(s *registrar, d Deps) {
 	), addOrEditJiraIssueComment(d))
 
 	s.AddTool(mcp.NewTool("addOrEditJiraIssueWorklog",
-		mcp.WithDescription("Log time on a work item, or edit an existing worklog. Pass worklogId to edit; omit it to log new time."),
+		mcp.WithDescription(
+			"Log time on a work item, or edit an existing worklog. Pass worklogId to edit; omit it to log new time.\n\n"+
+				"An edit moves the issue's time totals by the delta, so correcting \"3h\" to \"2h\" is one call. "+
+				"started backdates the entry to when the work happened; omitted means now. "+
+				"Estimate changes do not belong here: set them with editJiraIssue's estimateMinutes and "+
+				"timeRemainingMinutes, whose fields the worklog call refuses rather than ignores."),
 		mcp.WithTitleAnnotation("Add or edit worklog"),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -170,6 +194,47 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 	}
 }
 
+type cloneResult struct {
+	Issue    jira.Issue `json:"issue"`
+	Subtasks []string   `json:"subtasks"`
+}
+
+func cloneJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.CloneIssueArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if args.IssueIDOrKey == "" {
+			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
+		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		log.Printf("[jirrabit-mcp cloneJiraIssue] %s", args.IssueIDOrKey)
+		body := map[string]any{"include_subtasks": args.IncludeSubtasks}
+		if args.Summary != "" {
+			body["summary"] = args.Summary
+		}
+		if args.SprintID != nil {
+			body["sprint_id"] = *args.SprintID
+		}
+		var out cloneResult
+		path := fmt.Sprintf("issues/%s/clone/", url.PathEscape(args.IssueIDOrKey))
+		if err := client.Post(ctx, path, body, &out); err != nil {
+			return toolError(err)
+		}
+		if out.Subtasks == nil {
+			out.Subtasks = []string{}
+		}
+		return jsonResult(map[string]any{
+			"issue":    shaper.Issue(out.Issue),
+			"subtasks": out.Subtasks,
+		})
+	}
+}
+
 func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args schema.EditIssueArgs
@@ -232,11 +297,12 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 		}
 		// As on create: a named argument beats the same key inside `fields`.
 		for key, value := range map[string]*int{
-			"priority_id":      args.PriorityID,
-			"status_id":        args.StatusID,
-			"sprint_id":        args.SprintID,
-			"epic_id":          args.EpicID,
-			"estimate_minutes": args.EstimateMinutes,
+			"priority_id":            args.PriorityID,
+			"status_id":              args.StatusID,
+			"sprint_id":              args.SprintID,
+			"epic_id":                args.EpicID,
+			"estimate_minutes":       args.EstimateMinutes,
+			"time_remaining_minutes": args.TimeRemaining,
 		} {
 			if value != nil {
 				payload[key] = *value
@@ -413,43 +479,53 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
 		}
 
-		if args.WorklogID != "" {
-			// jirrabit has no PATCH for a worklog, and it is not worth faking:
-			// the row also feeds the issue's time totals, so an edit has to move
-			// those too, and only the create path does. deleteJiraIssueWorklog
-			// and a fresh addJiraIssue-with-time will get there.
-			return mcp.NewToolResultErrorf(
-				"Editing an existing worklog is not supported by jirrabit's API yet (it exposes no PATCH "+
-					"/api/v1/issues/%s/worklogs/{id}/, and the edit would have to adjust the issue's time "+
-					"totals as well). To correct an entry, deleteJiraIssueWorklog removes it and this tool "+
-					"logs the replacement; to log time, omit worklogId.",
-				args.IssueIDOrKey,
-			), nil
-		}
-
-		// These four are declared because Atlassian's tool declares them, and
-		// they used to be accepted and thrown away: the payload below is
-		// minutes and comment, nothing else. An agent that said "log 2h against
-		// Tuesday, and drop the remaining estimate by 2h" got a success, an
-		// entry timestamped now, and an untouched estimate.
+		// The estimate arguments are declared because Atlassian's tool declares
+		// them, and they used to be accepted and thrown away: the payload below
+		// is minutes, comment and started, nothing else. An agent that said
+		// "log 2h against Tuesday, and drop the remaining estimate by 2h" got a
+		// success, an entry timestamped now, and an untouched estimate.
 		//
-		// jirrabit's WorkLogIn carries only minutes and comment, and its
-		// IssuePatch has no estimate field, so honouring them is an API change
-		// rather than a bug here. Naming the field that would have to exist is
-		// what turns "that did not work" into a decision the caller can make.
+		// Estimates live on the issue, not the worklog, so they are refused
+		// here and routed to editJiraIssue, which writes estimate_minutes and
+		// time_remaining_minutes. Naming the tool that does the job is what
+		// turns "that did not work" into a decision the caller can make.
 		if dropped := droppedWorklogArgs(args); dropped != "" {
 			return mcp.NewToolResultErrorf(
-				"%s cannot be honoured by jirrabit's API yet, so nothing was logged. "+
-					"POST /api/v1/issues/%s/worklogs/ accepts only minutes and comment, "+
-					"and changing the remaining estimate needs estimate_minutes on IssuePatch, "+
-					"which is read-only today. To log the time now, drop %s.",
-				dropped, args.IssueIDOrKey, dropped,
+				"%s belongs to the issue, not the worklog entry: set it with editJiraIssue's "+
+					"estimateMinutes and timeRemainingMinutes, then log the time here. "+
+					"Nothing was logged.",
+				dropped,
 			), nil
 		}
 
 		minutes, err := worklogMinutes(args)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if args.WorklogID != "" {
+			// An edit moves the issue's totals by the delta, under the same
+			// row lock as the log and unlog paths, so correcting "3h" to "2h"
+			// is one call rather than a delete plus a recreate that loses the
+			// original date.
+			log.Printf("[jirrabit-mcp addOrEditJiraIssueWorklog] %s worklog %s -> %dm",
+				args.IssueIDOrKey, args.WorklogID, minutes)
+			// Comment rides along only when given: the schema cannot tell an
+			// absent comment from an empty one, so an unconditional key would
+			// wipe the comment on every minutes-only correction.
+			payload := map[string]any{"minutes": minutes}
+			if args.Comment != "" {
+				payload["comment"] = args.Comment
+			}
+			if args.Started != "" {
+				payload["started"] = args.Started
+			}
+			var worklog jira.WorkLog
+			path := fmt.Sprintf("issues/%s/worklogs/%s/",
+				url.PathEscape(args.IssueIDOrKey), url.PathEscape(args.WorklogID))
+			if err := client.Patch(ctx, path, payload, &worklog); err != nil {
+				return toolError(err)
+			}
+			return jsonResult(shaper.WorkLog(worklog))
 		}
 		log.Printf("[jirrabit-mcp addOrEditJiraIssueWorklog] %s %dm", args.IssueIDOrKey, minutes)
 
@@ -458,6 +534,9 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 		payload := map[string]any{"minutes": minutes}
 		if args.Comment != "" {
 			payload["comment"] = args.Comment
+		}
+		if args.Started != "" {
+			payload["started"] = args.Started
 		}
 		if err := client.Post(ctx, path, payload, &worklog); err != nil {
 			return toolError(err)
@@ -476,10 +555,9 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 // logging the time anyway, is how "reduce the estimate by 2h" came to mean
 // "logged 2h, estimate unchanged, no error".
 func droppedWorklogArgs(args schema.AddOrEditWorkLogArgs) string {
+	// started used to be refused here, back when the API timestamped every
+	// entry on arrival. It is honoured now, so it is conspicuously absent.
 	var dropped []string
-	if args.Started != "" {
-		dropped = append(dropped, "started")
-	}
 	if args.NewEstimate != "" {
 		dropped = append(dropped, "newEstimate")
 	}
@@ -608,12 +686,13 @@ func editProvidedNames(args schema.EditIssueArgs) map[string]bool {
 		provided["summary"] = true
 	}
 	for key, value := range map[string]*int{
-		"story_points":     args.StoryPoints,
-		"status_id":        args.StatusID,
-		"priority_id":      args.PriorityID,
-		"sprint_id":        args.SprintID,
-		"epic_id":          args.EpicID,
-		"estimate_minutes": args.EstimateMinutes,
+		"story_points":           args.StoryPoints,
+		"status_id":              args.StatusID,
+		"priority_id":            args.PriorityID,
+		"sprint_id":              args.SprintID,
+		"epic_id":                args.EpicID,
+		"estimate_minutes":       args.EstimateMinutes,
+		"time_remaining_minutes": args.TimeRemaining,
 	} {
 		if value != nil {
 			provided[key] = true

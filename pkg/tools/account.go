@@ -94,6 +94,28 @@ func registerAccountTools(s *registrar, d Deps) {
 		mcp.WithInputSchema[schema.UpdateAdminUserArgs](),
 	), updateJiraAdminUser(d))
 
+	s.AddTool(mcp.NewTool("updateJiraCurrentUser",
+		mcp.WithDescription(
+			"Update the caller's own jirrabit profile: display name, email, job title, "+
+				"timezone, language, colour palette, whether notification emails are sent, "+
+				"which notification kinds are muted, or the avatar.\n\n"+
+				"This is the user behind the apiKey, not anybody else: there is no user id "+
+				"argument because the caller can only ever be themselves. Changing someone "+
+				"else's account is updateJiraAdminUser and needs a superuser.\n\n"+
+				"Only what you send changes, and an empty call is refused with the list of "+
+				"what it accepts. mutedKinds takes kind names and replaces the whole mute "+
+				"list, so read getJiraCurrentUser first or you will unmute what was muted.\n\n"+
+				"What it cannot do is deliberate rather than missing: username is the login "+
+				"and never changes here, there is no password field because rotation stays "+
+				"in the web flow, and privilege flags belong to updateJiraAdminUser."),
+		mcp.WithTitleAnnotation("Update own profile"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithInputSchema[schema.UpdateCurrentUserArgs](),
+	), updateJiraCurrentUser(d))
+
 	s.AddTool(mcp.NewTool("listJiraInvites",
 		mcp.WithDescription(
 			"List the instance's registration invites, with who made them, when they expire "+
@@ -327,6 +349,92 @@ func updateJiraAdminUser(d Deps) func(ctx context.Context, req mcp.CallToolReque
 		log.Printf("[jirrabit-mcp updateJiraAdminUser] %d %v", args.UserID, body)
 		var user adminUserDTO
 		if err := client.Patch(ctx, fmt.Sprintf("admin/users/%d/", args.UserID), body, &user); err != nil {
+			return toolError(err)
+		}
+		return jsonResult(map[string]any{"user": user})
+	}
+}
+
+type meDTO struct {
+	ID          int      `json:"id"`
+	Username    string   `json:"username"`
+	DisplayName string   `json:"display_name"`
+	FirstName   string   `json:"first_name"`
+	LastName    string   `json:"last_name"`
+	Email       string   `json:"email"`
+	JobTitle    string   `json:"job_title"`
+	Timezone    string   `json:"timezone"`
+	Language    string   `json:"language"`
+	Palette     string   `json:"palette"`
+	NotifyEmail bool     `json:"notify_email"`
+	MutedKinds  []string `json:"muted_kinds"`
+	HasAvatar   bool     `json:"has_avatar"`
+}
+
+func updateJiraCurrentUser(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.UpdateCurrentUserArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		// Only what was sent. A mutedKinds list that arrives without the rest
+		// of the profile must not blank it, and the endpoint replaces the
+		// whole mute list, so the description tells the caller to read first.
+		body := map[string]any{}
+		if args.DisplayName != nil {
+			body["display_name"] = *args.DisplayName
+		}
+		if args.FirstName != nil {
+			body["first_name"] = *args.FirstName
+		}
+		if args.LastName != nil {
+			body["last_name"] = *args.LastName
+		}
+		if args.Email != nil {
+			body["email"] = *args.Email
+		}
+		if args.JobTitle != nil {
+			body["job_title"] = *args.JobTitle
+		}
+		if args.Timezone != nil {
+			body["timezone"] = *args.Timezone
+		}
+		if args.Language != nil {
+			body["language"] = *args.Language
+		}
+		if args.Palette != nil {
+			body["palette"] = *args.Palette
+		}
+		if args.NotifyEmail != nil {
+			body["notify_email"] = *args.NotifyEmail
+		}
+		if args.MutedKinds != nil {
+			body["muted_kinds"] = args.MutedKinds
+		}
+		if args.Avatar != nil {
+			body["avatar"] = *args.Avatar
+		}
+		if len(body) == 0 {
+			return mcp.NewToolResultError(
+				"nothing to change: give at least one of displayName, firstName, lastName, " +
+					"email, jobTitle, timezone, language, palette, notifyEmail, mutedKinds or avatar"), nil
+		}
+		// The avatar is logged by presence, not by value: it is a base64 blob
+		// and a log line is the wrong place for megabytes.
+		logged := map[string]any{}
+		for key, value := range body {
+			logged[key] = value
+		}
+		if _, ok := logged["avatar"]; ok {
+			logged["avatar"] = "<avatar data URL omitted>"
+		}
+		log.Printf("[jirrabit-mcp updateJiraCurrentUser] %v", logged)
+		var user meDTO
+		if err := client.Patch(ctx, "me/", body, &user); err != nil {
 			return toolError(err)
 		}
 		return jsonResult(map[string]any{"user": user})

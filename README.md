@@ -3,7 +3,7 @@
 An MCP (Model Context Protocol) server that puts a [jirrabit](https://github.com/rroblf01/jirrabit)
 instance behind Atlassian's Jira tool vocabulary.
 
-**Current release: 1.2.1** ([changelog](CHANGELOG.md)) — 108 tools registered
+**Current release: 1.3.0** ([changelog](CHANGELOG.md)) — 114 tools registered
 without any flag, 126 with both on.
 
 1.2.0 closed the gap between jirrabit's REST API and this server: 34 tools that
@@ -201,11 +201,12 @@ cannot, so project names are not leaked.
 
 ## Available tools
 
-Always on — 108 tools:
+Always on — 114 tools:
 
 | Tool | jirrabit endpoint |
 |---|---|
 | `getJiraCurrentUser` | `GET /api/v1/me/` |
+| `updateJiraCurrentUser` | `PATCH /api/v1/me/` |
 | `listJiraProjects` | `GET /api/v1/projects/` |
 | `getJiraProject` | `GET /api/v1/projects/{key}/` |
 | `listJiraProjectMembers` | `GET /api/v1/projects/{key}/members/` |
@@ -224,6 +225,9 @@ Always on — 108 tools:
 | `markJiraNotificationsRead` | `POST /api/v1/notifications/read/` |
 | `listJiraTeams` | `GET /api/v1/teams/` |
 | `getJiraProjectActivity` | `GET /api/v1/projects/{key}/activity/` |
+| `getJiraProjectSla` | `GET /api/v1/projects/{key}/sla/` |
+| `getJiraProjectBurndown` | `GET /api/v1/projects/{key}/burndown/` |
+| `getJiraProjectReports` | `GET /api/v1/projects/{key}/reports/` |
 | `createJiraStatus` | `POST /api/v1/statuses/` |
 | `updateJiraStatusTransitions` | `PATCH /api/v1/statuses/{id}/` |
 | `deleteJiraStatus` | `DELETE /api/v1/statuses/{id}/` |
@@ -237,13 +241,14 @@ Always on — 108 tools:
 | `listJiraWebhooks` | `GET /api/v1/projects/{key}/webhooks/` |
 | `getJiraProjectWiki` | `GET /api/v1/projects/{key}/wiki/` |
 | `createJiraIssue` | `POST /api/v1/projects/{key}/issues/` |
+| `cloneJiraIssue` | `POST /api/v1/issues/{key}/clone/` |
 | `editJiraIssue` | `PATCH /api/v1/issues/{key}/` |
 | `transitionJiraIssue` | `PATCH /api/v1/issues/{key}/` with `status_id` |
 | `searchJiraIssuesUsingJql` | `GET /api/v1/search?jql=` |
 | `listJiraIssueComments` | `GET /api/v1/issues/{key}/comments/` |
 | `addOrEditJiraIssueComment` | `POST /api/v1/issues/{key}/comments/` (create only) |
 | `listJiraIssueWorklogs` | `GET /api/v1/issues/{key}/worklogs/` |
-| `addOrEditJiraIssueWorklog` | `POST /api/v1/issues/{key}/worklogs/` (create only) |
+| `addOrEditJiraIssueWorklog` | `POST /api/v1/issues/{key}/worklogs/`, `PATCH /api/v1/issues/{key}/worklogs/{id}/` |
 | `listJiraIssueLinkTypes` | `GET /api/v1/link-types/` |
 | `createJiraIssueLink` | `POST /api/v1/issues/{key}/links/` |
 | `getJiraIssueLinks` | `GET /api/v1/issues/{key}/links/` |
@@ -278,6 +283,7 @@ Always on — 108 tools:
 | `unlinkJiraBranchFromIssue` | `DELETE /api/v1/issues/{key}/branches/{id}/` |
 | `listJiraIssueTemplates` | `GET /api/v1/projects/{key}/issue-templates/` |
 | `createJiraIssueTemplate` | `POST /api/v1/projects/{key}/issue-templates/` |
+| `updateJiraIssueTemplate` | `PATCH /api/v1/projects/{key}/issue-templates/{id}/` |
 | `exportJiraIssuesCsv` | `GET /api/v1/projects/{key}/csv-export/` |
 | `importJiraIssuesCsv` | `POST /api/v1/projects/{key}/csv-import/` |
 | `listJiraBoardViews` | `GET /api/v1/projects/{key}/board-views/` |
@@ -371,15 +377,15 @@ over `deleteJiraIssue`, `active: false` over deleting a webhook, recreating over
 deleting a saved filter.
 
 Still missing, because jirrabit exposes no endpoint for them: boards as
-configurable entities, versions, components, entity properties, and editing an
-existing worklog. They will appear as the API grows; see the tool surface in
-[AGENTS.md](AGENTS.md).
+configurable entities, versions, components, and entity properties. They will
+appear as the API grows; see the tool surface in [AGENTS.md](AGENTS.md).
 
-Ten Atlassian arguments are refused rather than ignored, because jirrabit cannot
+Seven Atlassian arguments are refused rather than ignored, because jirrabit cannot
 honour them and a silent no-op is worse than an error: `fields` and `expand` on
 `getJiraIssue`, `visibilityType` and `visibilityValue` on
-`addOrEditJiraIssueComment`, and `started`, `newEstimate`, `adjustEstimate` and
-`reduceBy` on `addOrEditJiraIssueWorklog`. Each error names what is missing.
+`addOrEditJiraIssueComment`, and `newEstimate`, `adjustEstimate` and `reduceBy`
+on `addOrEditJiraIssueWorklog` — estimates live on the issue, so those three are
+routed to `editJiraIssue` instead. Each error names what is missing.
 
 ### Multi-tenancy, verified
 

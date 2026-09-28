@@ -61,7 +61,8 @@ is single-tenant per deployment, and instanceUrl plays that role.
 STARTING A SESSION
 Call getJiraCurrentUser to confirm the credentials work, then listJiraProjects to
 see which projects you can reach. A project you cannot see does not appear at
-all.
+all. updateJiraCurrentUser edits the caller's own profile — display name, email,
+timezone, palette, notification preferences — and nobody else's.
 
 GETTING THE ARGUMENT NAMES RIGHT
 These are the names that are not what you would guess, and each one cost a

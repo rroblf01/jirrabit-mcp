@@ -283,7 +283,7 @@ gofmt -l .                                       # must print nothing
 # tool-shaped names that are not registered, and prints the tool count.
 go run ./cmd/flowtest -server ./bin/jirrabit-mcp -phantoms-only
 
-# Everything. 245 checks, and it creates real data, so point it at a scratch
+# Everything. 266 checks, and it creates real data, so point it at a scratch
 # instance. Add JIRRABIT_MCP_ENABLE_DELETE=1 and _ENABLE_MANAGE=1 to exercise the
 # opt-in tools too; several checks assert the opposite answer when the flags are
 # off, so running it both ways is the point.

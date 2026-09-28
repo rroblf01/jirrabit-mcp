@@ -222,6 +222,25 @@ func registerPersonalTools(s *registrar, d Deps) {
 		mcp.WithInputSchema[schema.CreateIssueTemplateArgs](),
 	), createJiraIssueTemplate(d))
 
+	s.AddTool(mcp.NewTool("updateJiraIssueTemplate",
+		mcp.WithDescription(
+			"Edit an issue template in a project: its name, type, default summary, "+
+				"default description, default priority, or labels. Needs admin on the "+
+				"project, like creating one.\n\n"+
+				"Only what you send changes, and an empty call is refused with the list "+
+				"of what it accepts. The name must stay unique within the project. Labels "+
+				"replace the whole set, so read the template with listJiraIssueTemplates "+
+				"first. A default priority is removed with clearPriority, not with a null "+
+				"priorityId: the two arrive identically and only one of them can mean "+
+				"\"remove it\"."),
+		mcp.WithTitleAnnotation("Update issue template"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.UpdateIssueTemplateArgs](),
+	), updateJiraIssueTemplate(d))
+
 }
 
 // --- pins -------------------------------------------------------------------
@@ -745,6 +764,63 @@ func createJiraIssueTemplate(d Deps) func(ctx context.Context, req mcp.CallToolR
 	}
 }
 
+func updateJiraIssueTemplate(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.UpdateIssueTemplateArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		key, err := projectKey(ctx, client, args.ProjectKeyOrID)
+		if err != nil {
+			return toolError(err)
+		}
+		if args.TemplateID <= 0 {
+			return mcp.NewToolResultError("templateId is required, from listJiraIssueTemplates"), nil
+		}
+		// Only what was sent. Labels arrive as a nil slice when absent and an
+		// empty one when the caller means "clear them", which is the one case
+		// where sending nothing and sending something empty must differ.
+		body := map[string]any{}
+		if args.Name != nil {
+			body["name"] = *args.Name
+		}
+		if args.IssueTypeID != nil {
+			body["issue_type_id"] = *args.IssueTypeID
+		}
+		if args.Summary != nil {
+			body["summary"] = *args.Summary
+		}
+		if args.Description != nil {
+			body["description"] = *args.Description
+		}
+		if args.PriorityID != nil {
+			body["priority_id"] = *args.PriorityID
+		}
+		if args.ClearPriority {
+			body["priority_id"] = nil
+		}
+		if args.Labels != nil {
+			body["labels"] = args.Labels
+		}
+		if len(body) == 0 {
+			return mcp.NewToolResultError(
+				"nothing to change: give at least one of name, issueTypeId, summary, " +
+					"description, priorityId, clearPriority or labels"), nil
+		}
+		log.Printf("[jirrabit-mcp updateJiraIssueTemplate] %s/%d", key, args.TemplateID)
+		var template issueTemplateDTO
+		path := fmt.Sprintf("projects/%s/issue-templates/%d/", url.PathEscape(key), args.TemplateID)
+		if err := client.Patch(ctx, path, body, &template); err != nil {
+			return toolError(err)
+		}
+		return jsonResult(map[string]any{"issueTemplate": template})
+	}
+}
+
 func deleteJiraIssueTemplate(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args schema.DeleteIssueTemplateArgs
@@ -763,13 +839,57 @@ func deleteJiraIssueTemplate(d Deps) func(ctx context.Context, req mcp.CallToolR
 			return mcp.NewToolResultError("templateId is required, from listJiraIssueTemplates"), nil
 		}
 		path := fmt.Sprintf("projects/%s/issue-templates/%d/", url.PathEscape(key), args.TemplateID)
-		var out map[string]any
-		// DeleteOnce, not Delete: two calls are two separate decisions, and a
-		// second one to change your mind should be refused.
-		if err := client.DeleteOnce(ctx, path, &out); err != nil {
-			return toolError(err)
+
+		c := confirmable{
+			signer: newConfirmSigner(client),
+			op:     "deleteJiraIssueTemplate",
+			target: fmt.Sprintf("%s/%d", key, args.TemplateID),
+			build: func() (Preview, func(*jira.Client) (any, error), error) {
+				// The name goes in the preview so the confirmation names a
+				// template, not a number. There is no single-template GET, so
+				// the list is read and the id matched — and a template id that
+				// matches nothing is a refusal, not an empty preview.
+				items, _, err := jira.List[issueTemplateDTO](
+					ctx, client, jira.WithPage(
+						fmt.Sprintf("projects/%s/issue-templates/", url.PathEscape(key)), 1, 200))
+				if err != nil {
+					return Preview{}, nil, err
+				}
+				name := ""
+				for _, item := range items {
+					if item.ID == args.TemplateID {
+						name = item.Name
+						break
+					}
+				}
+				if name == "" {
+					return Preview{}, nil, fmt.Errorf(
+						"no hay una plantilla con id %d en el proyecto %s", args.TemplateID, key)
+				}
+				preview := Preview{
+					Operation: "deleteJiraIssueTemplate",
+					Target:    name,
+					Summary: fmt.Sprintf(
+						"delete the issue template %q from project %s. Issues already "+
+							"created from it are untouched; only the scaffold goes.",
+						name, key),
+					Reversible: false,
+					Undo:       "",
+				}
+				work := func(cl *jira.Client) (any, error) {
+					var out map[string]any
+					// DeleteOnce, not Delete: two calls are two separate
+					// decisions, and a second one to change your mind should
+					// be refused.
+					if err := cl.DeleteOnce(ctx, path, &out); err != nil {
+						return nil, err
+					}
+					return out, nil
+				}
+				return preview, work, nil
+			},
 		}
-		return jsonResult(out)
+		return c.run(args.Confirmation.Confirm, client)
 	}
 }
 

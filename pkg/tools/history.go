@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -76,6 +77,223 @@ func registerHistoryTools(s *registrar, d Deps) {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithInputSchema[schema.ProjectActivityArgs](),
 	), getJiraProjectActivity(d))
+
+	s.AddTool(mcp.NewTool("getJiraProjectSla",
+		mcp.WithDescription(
+			"Open issues stuck in one status longer than a threshold, oldest first. "+
+				"\"Time at current status\" is the newest status-change row, or the issue's "+
+				"own creation when it never moved; done-category issues are never stuck.\n\n"+
+				"Use it to answer \"what is blocked\" without downloading every changelog. "+
+				"Days defaults to 7 and clamps to a minimum of 1."),
+		mcp.WithTitleAnnotation("Get project SLA breaches"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.ProjectSlaArgs](),
+	), getJiraProjectSla(d))
+
+	s.AddTool(mcp.NewTool("getJiraProjectBurndown",
+		mcp.WithDescription(
+			"A sprint's burndown in story points plus recent velocity: committed vs "+
+				"completed per closed sprint, and the ideal line against what actually "+
+				"remains, day by day.\n\n"+
+				"Future days carry no actual rather than zero — a client that plots null "+
+				"as zero draws a cliff that is not there. Omit the sprint for the active "+
+				"one, else the latest by start date; a project with no sprints answers "+
+				"empty rather than 404."),
+		mcp.WithTitleAnnotation("Get project burndown"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.ProjectBurndownArgs](),
+	), getJiraProjectBurndown(d))
+
+	s.AddTool(mcp.NewTool("getJiraProjectReports",
+		mcp.WithDescription(
+			"Throughput per ISO week for the last eight weeks, cycle-time stats over "+
+				"issues resolved in the last ninety days, and a WIP-by-status snapshot.\n\n"+
+				"Two caveats travel with the numbers. Cycle time starts at the first "+
+				"recorded status change, falling back to the issue's creation — and like "+
+				"every changelog built on HistoryEntry that history is incomplete, so "+
+				"cycle time is a lower bound as much as a measurement. And WIP counts "+
+				"every issue in each status, archived included, exactly as the web page "+
+				"does."),
+		mcp.WithTitleAnnotation("Get project reports"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.ProjectReportsArgs](),
+	), getJiraProjectReports(d))
+}
+
+type slaItem struct {
+	Issue        string `json:"issue"`
+	Summary      string `json:"summary"`
+	Status       string `json:"status"`
+	Priority     string `json:"priority"`
+	Assignee     string `json:"assignee"`
+	EnteredAt    string `json:"entered_at"`
+	DaysInStatus int    `json:"days_in_status"`
+}
+
+type slaReport struct {
+	Project       string    `json:"project"`
+	ThresholdDays int       `json:"threshold_days"`
+	Count         int       `json:"count"`
+	Items         []slaItem `json:"items"`
+}
+
+func getJiraProjectSla(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.ProjectSlaArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		key, err := projectKey(ctx, client, args.ProjectKeyOrID)
+		if err != nil {
+			return toolError(err)
+		}
+		path := fmt.Sprintf("projects/%s/sla/", url.PathEscape(key))
+		if args.Days > 0 {
+			path += "?days=" + strconv.Itoa(args.Days)
+		}
+		log.Printf("[jirrabit-mcp getJiraProjectSla] %s", key)
+		var out slaReport
+		if err := client.Get(ctx, path, &out); err != nil {
+			return toolError(err)
+		}
+		if out.Items == nil {
+			out.Items = []slaItem{}
+		}
+		return jsonResult(out)
+	}
+}
+
+type burndownPoint struct {
+	Date   string   `json:"date"`
+	Ideal  float64  `json:"ideal"`
+	Actual *float64 `json:"actual"`
+}
+
+type burndownSprint struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+}
+
+type velocityRow struct {
+	Name      string `json:"name"`
+	Committed int    `json:"committed"`
+	Completed int    `json:"completed"`
+}
+
+type burndownReport struct {
+	Project     string          `json:"project"`
+	Sprint      *burndownSprint `json:"sprint"`
+	TotalSP     int             `json:"total_sp"`
+	DoneSP      int             `json:"done_sp"`
+	PercentDone float64         `json:"percent_done"`
+	Points      []burndownPoint `json:"points"`
+	Velocity    []velocityRow   `json:"velocity"`
+}
+
+func getJiraProjectBurndown(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.ProjectBurndownArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		key, err := projectKey(ctx, client, args.ProjectKeyOrID)
+		if err != nil {
+			return toolError(err)
+		}
+		path := fmt.Sprintf("projects/%s/burndown/", url.PathEscape(key))
+		if args.SprintID != nil {
+			path += "?sprint=" + strconv.Itoa(*args.SprintID)
+		}
+		log.Printf("[jirrabit-mcp getJiraProjectBurndown] %s", key)
+		var out burndownReport
+		if err := client.Get(ctx, path, &out); err != nil {
+			return toolError(err)
+		}
+		if out.Points == nil {
+			out.Points = []burndownPoint{}
+		}
+		if out.Velocity == nil {
+			out.Velocity = []velocityRow{}
+		}
+		return jsonResult(out)
+	}
+}
+
+type throughputWeek struct {
+	Week  string `json:"week"`
+	Count int    `json:"count"`
+}
+
+type cycleTime struct {
+	Count   int     `json:"count"`
+	MedianH float64 `json:"median_h"`
+	AvgH    float64 `json:"avg_h"`
+	P90H    float64 `json:"p90_h"`
+}
+
+type wipRow struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Count    int    `json:"count"`
+}
+
+type reportsReport struct {
+	Project       string           `json:"project"`
+	Throughput    []throughputWeek `json:"throughput"`
+	ThroughputMax int              `json:"throughput_max"`
+	Cycle         cycleTime        `json:"cycle"`
+	WIP           []wipRow         `json:"wip"`
+	WIPMax        int              `json:"wip_max"`
+}
+
+func getJiraProjectReports(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.ProjectReportsArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		key, err := projectKey(ctx, client, args.ProjectKeyOrID)
+		if err != nil {
+			return toolError(err)
+		}
+		log.Printf("[jirrabit-mcp getJiraProjectReports] %s", key)
+		var out reportsReport
+		path := fmt.Sprintf("projects/%s/reports/", url.PathEscape(key))
+		if err := client.Get(ctx, path, &out); err != nil {
+			return toolError(err)
+		}
+		if out.Throughput == nil {
+			out.Throughput = []throughputWeek{}
+		}
+		if out.WIP == nil {
+			out.WIP = []wipRow{}
+		}
+		return jsonResult(out)
+	}
 }
 
 func getJiraIssueChangelog(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

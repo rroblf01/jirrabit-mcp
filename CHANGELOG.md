@@ -11,7 +11,51 @@ The version a running server reports — in the `initialize` response, which is
 how you tell two builds apart — is stamped at image build time from the release
 tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
-## [Unreleased]
+## [1.3.0]
+
+### Added
+
+- `updateJiraCurrentUser`, with `PATCH /api/v1/me/` underneath it: the caller's
+  own display name, email, job title, timezone, language, palette,
+  notification-email switch, muted notification kinds and avatar. jirrabit had
+  only the profile form for this, so an agent could read who it was and change
+  nothing about itself. Username, password and privilege flags are deliberately
+  out of reach — the first is the login, the second rotates through the web
+  flow, the third belongs to `updateJiraAdminUser` — and the muted-kinds list is
+  replaced whole, so the tool says to read the profile first.
+- `updateJiraIssueTemplate`, with `PATCH
+  /api/v1/projects/{key}/issue-templates/{id}/` underneath it: the name, type,
+  default summary, default description, default priority and labels of a
+  template. Create, list and delete existed while a typo in a default could only
+  be fixed by deleting the template and recreating it. A default priority is
+  removed with `clearPriority`, because a null and an absent `priorityId` arrive
+  identically and only one of them can mean "remove it".
+- Worklog correction, end to end: `PATCH
+  /api/v1/issues/{key}/worklogs/{id}/` edits minutes, comment and when the work
+  happened, moving the issue's totals by the delta under the same row lock as
+  the log and unlog paths, and `POST` accepts `started` to backdate an entry.
+  `addOrEditJiraIssueWorklog` finally honours the second half of its name —
+  its description promised editing while the handler refused it — and `started`
+  with it, so "I logged 3h, it was 2h, and it was Tuesday" is one call. The
+  estimate arguments stay refused, but the message now routes to `editJiraIssue`,
+  whose `estimateMinutes` was always writable and which gains
+  `timeRemainingMinutes`: the old text claimed both were read-only, which
+  stopped being true without anyone updating it.
+- `cloneJiraIssue`, with `POST /api/v1/issues/{key}/clone/` underneath it:
+  summary, description, type, priority, assignee, labels, epic, story points,
+  estimate and due date, with the caller as reporter. The same field set as
+  the web UI's clone, so the two cannot disagree about what a copy means.
+  Subtasks copy one level only when `includeSubtasks` says so, and comments,
+  history, attachments, links, time and the archived flag never copy.
+- Project analytics, read-only: `getJiraProjectSla`,
+  `getJiraProjectBurndown` and `getJiraProjectReports`, over
+  `GET /api/v1/projects/{key}/sla|burndown|reports/`. The three pages answer
+  what standup asks — what is stuck, how the sprint is going, how fast the
+  team ships — and recomputing them client-side from changelog pages is the
+  kind of work that drifts between callers. The aggregation mirrors the web
+  views query for query, and the payloads carry data rather than markup: no
+  SVG coordinates, and future burndown days carry null rather than zero, so a
+  client that plots null as zero does not draw a cliff that is not there.
 
 ## [1.2.1] - 2026-09-28
 

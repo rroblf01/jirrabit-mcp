@@ -92,6 +92,7 @@ type EditIssueArgs struct {
 	// because reading it as "add these" would leave no way to remove one.
 	Labels          []string       `json:"labels,omitempty" jsonschema:"Replace the issue's labels with this list. Names, not ids; unknown names are created. An empty list removes them all"`
 	EstimateMinutes *int           `json:"estimateMinutes,omitempty" jsonschema:"Estimate in minutes, e.g. 480 for eight hours"`
+	TimeRemaining   *int           `json:"timeRemainingMinutes,omitempty" jsonschema:"Minutes still estimated as remaining. Logging time decreases it automatically; set this to correct it by hand"`
 	Fields          map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, using jirrabit's own field names. An unrecognised key is an error rather than ignored"`
 }
 
@@ -136,11 +137,20 @@ type AddOrEditWorkLogArgs struct {
 	TimeSpentSeconds *int   `json:"timeSpentSeconds,omitempty" jsonschema:"Seconds to log. Required when creating a worklog"`
 	TimeSpent        string `json:"timeSpent,omitempty" jsonschema:"Time in Jira duration format, e.g. '2h 30m'. Alternative to timeSpentSeconds"`
 	Comment          string `json:"comment,omitempty" jsonschema:"Worklog comment, in Markdown"`
-	Started          string `json:"started,omitempty" jsonschema:"Not available here. jirrabit timestamps a worklog when it arrives; sending this is rejected rather than ignored"`
-	WorklogID        string `json:"worklogId,omitempty" jsonschema:"Numeric id of an existing worklog to edit. Omit to log new time"`
-	NewEstimate      string `json:"newEstimate,omitempty" jsonschema:"Not available here. jirrabit's estimate is read-only through the API; sending this is rejected"`
-	AdjustEstimate   string `json:"adjustEstimate,omitempty" jsonschema:"Not available here. jirrabit's estimate is read-only through the API; sending this is rejected"`
-	ReduceBy         string `json:"reduceBy,omitempty" jsonschema:"Not available here. jirrabit's estimate is read-only through the API; sending this is rejected"`
+	Started          string `json:"started,omitempty" jsonschema:"When the work happened, as ISO 8601, e.g. 2026-09-20T14:00:00+02:00. Omitted means now. A date without an offset is read in the server's timezone; a future date is refused"`
+	WorklogID        string `json:"worklogId,omitempty" jsonschema:"Numeric id of an existing worklog to edit, from listJiraIssueWorklogs. Omit to log new time"`
+	NewEstimate      string `json:"newEstimate,omitempty" jsonschema:"Not taken here: estimates live on the issue, so set them with editJiraIssue's estimateMinutes and timeRemainingMinutes. Sending this is rejected rather than ignored"`
+	AdjustEstimate   string `json:"adjustEstimate,omitempty" jsonschema:"Not taken here: estimates live on the issue, so set them with editJiraIssue's estimateMinutes and timeRemainingMinutes. Sending this is rejected rather than ignored"`
+	ReduceBy         string `json:"reduceBy,omitempty" jsonschema:"Not taken here: estimates live on the issue, so set them with editJiraIssue's estimateMinutes and timeRemainingMinutes. Sending this is rejected rather than ignored"`
+}
+
+// CloneIssueArgs is the input of cloneJiraIssue.
+type CloneIssueArgs struct {
+	Target
+	IssueIDOrKey    string `json:"issueIdOrKey" jsonschema:"Issue ID or key to copy, e.g. WEB-1"`
+	Summary         string `json:"summary,omitempty" jsonschema:"Summary for the copy. Omitted means the UI's own spelling, '[clon] ' plus the original summary"`
+	SprintID        *int   `json:"sprintId,omitempty" jsonschema:"Sprint to place the copy in, from listJiraSprints. This is the 'clone it for next sprint' workflow"`
+	IncludeSubtasks bool   `json:"includeSubtasks,omitempty" jsonschema:"Copy direct subtasks as children of the copy, one level only. Off by default: cloning a parent with many children is a bulk create, and the caller should ask for it out loud"`
 }
 
 // --- projects and users ----------------------------------------------------
@@ -482,6 +492,26 @@ type ProjectActivityArgs struct {
 	NextPageToken  string `json:"nextPageToken,omitempty" jsonschema:"Opaque cursor from a previous response's nextPageToken"`
 }
 
+// ProjectSlaArgs is the input of getJiraProjectSla.
+type ProjectSlaArgs struct {
+	Target
+	ProjectKeyOrID string `json:"projectKeyOrId" jsonschema:"Project key or numeric id, e.g. WEB"`
+	Days           int    `json:"days,omitempty" jsonschema:"Flag issues stuck in one status longer than this many days. Default 7, minimum 1"`
+}
+
+// ProjectBurndownArgs is the input of getJiraProjectBurndown.
+type ProjectBurndownArgs struct {
+	Target
+	ProjectKeyOrID string `json:"projectKeyOrId" jsonschema:"Project key or numeric id, e.g. WEB"`
+	SprintID       *int   `json:"sprintId,omitempty" jsonschema:"Which sprint to chart, from listJiraSprints. Omitted means the active sprint, else the latest by start date"`
+}
+
+// ProjectReportsArgs is the input of getJiraProjectReports.
+type ProjectReportsArgs struct {
+	Target
+	ProjectKeyOrID string `json:"projectKeyOrId" jsonschema:"Project key or numeric id, e.g. WEB"`
+}
+
 // ListAttachmentsArgs is the input of listJiraIssueAttachments.
 type ListAttachmentsArgs struct {
 	Target
@@ -757,11 +787,26 @@ type CreateIssueTemplateArgs struct {
 	Labels         []string `json:"labels,omitempty" jsonschema:"Label names to apply on creation; created if missing"`
 }
 
+// UpdateIssueTemplateArgs is the input of updateJiraIssueTemplate.
+type UpdateIssueTemplateArgs struct {
+	Target
+	ProjectKeyOrID string   `json:"projectKeyOrId" jsonschema:"Project key or id, e.g. WEB"`
+	TemplateID     int      `json:"templateId" jsonschema:"Template id from listJiraIssueTemplates"`
+	Name           *string  `json:"name,omitempty" jsonschema:"New template name. Unique within the project"`
+	IssueTypeID    *int     `json:"issueTypeId,omitempty" jsonschema:"Numeric issue type id, from listJiraIssueTypeMetadata"`
+	Summary        *string  `json:"summary,omitempty" jsonschema:"New default summary to prefill"`
+	Description    *string  `json:"description,omitempty" jsonschema:"New default description, in markdown"`
+	PriorityID     *int     `json:"priorityId,omitempty" jsonschema:"Numeric priority id, from listJiraPriorityMetadata. Cannot clear on its own: a null and an absent value arrive the same way, so use clearPriority to remove the default priority"`
+	ClearPriority  bool     `json:"clearPriority,omitempty" jsonschema:"true removes the template's default priority"`
+	Labels         []string `json:"labels,omitempty" jsonschema:"Label names, replacing the whole set; created if missing. Read the template first or the labels it had are gone. An empty list clears them"`
+}
+
 // DeleteIssueTemplateArgs is the input of deleteJiraIssueTemplate.
 type DeleteIssueTemplateArgs struct {
 	Target
 	ProjectKeyOrID string `json:"projectKeyOrId" jsonschema:"Project key or id, e.g. WEB"`
 	TemplateID     int    `json:"templateId" jsonschema:"Template id from listJiraIssueTemplates"`
+	Confirmation
 }
 
 // --- project and membership --------------------------------------------------
@@ -1011,6 +1056,22 @@ type UpdateAdminUserArgs struct {
 	DisplayName *string `json:"displayName,omitempty" jsonschema:"New display name"`
 	IsSuperuser *bool   `json:"isSuperuser,omitempty" jsonschema:"true to grant instance-wide admin, false to take it away"`
 	IsActive    *bool   `json:"isActive,omitempty" jsonschema:"false deactivates the account: the person cannot log in and existing sessions stop working"`
+}
+
+// UpdateCurrentUserArgs is the input of updateJiraCurrentUser.
+type UpdateCurrentUserArgs struct {
+	Target
+	DisplayName *string  `json:"displayName,omitempty" jsonschema:"Name shown instead of the username"`
+	FirstName   *string  `json:"firstName,omitempty" jsonschema:"Given name"`
+	LastName    *string  `json:"lastName,omitempty" jsonschema:"Family name"`
+	Email       *string  `json:"email,omitempty" jsonschema:"Email address. Empty clears it, which also stops notification emails since there is nowhere to send them"`
+	JobTitle    *string  `json:"jobTitle,omitempty" jsonschema:"Job title shown on the profile"`
+	Timezone    *string  `json:"timezone,omitempty" jsonschema:"IANA timezone, e.g. Europe/Madrid. jirrabit rejects unknown zones rather than guessing"`
+	Language    *string  `json:"language,omitempty" jsonschema:"Interface language: es or en"`
+	Palette     *string  `json:"palette,omitempty" jsonschema:"Colour palette: blue, ocean, forest, violet, sunset, rose, midnight or contrast"`
+	NotifyEmail *bool    `json:"notifyEmail,omitempty" jsonschema:"false stops notification emails; in-app notices still arrive"`
+	MutedKinds  []string `json:"mutedKinds,omitempty" jsonschema:"Notification kinds to mute: assigned, mention, comment, status, watch. The whole list is replaced, not merged, so read the current profile first"`
+	Avatar      *string  `json:"avatar,omitempty" jsonschema:"Avatar as a data URL, data:image/png;base64,.... Empty string clears the avatar. PNG, JPEG, GIF or WebP, at most ~1.1 MB decoded"`
 }
 
 // --- invites -----------------------------------------------------------------
