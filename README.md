@@ -3,15 +3,18 @@
 An MCP (Model Context Protocol) server that puts a [jirrabit](https://github.com/rroblf01/jirrabit)
 instance behind Atlassian's Jira tool vocabulary.
 
-**Current release: 1.2.0** ([changelog](CHANGELOG.md)) — 108 tools registered
+**Current release: 1.2.1** ([changelog](CHANGELOG.md)) — 108 tools registered
 without any flag, 126 with both on.
 
-It closes the gap between jirrabit's REST API and this server: 34 tools that
+1.2.0 closed the gap between jirrabit's REST API and this server: 34 tools that
 were the last thing missing, including the six whose endpoints did not exist at
 all and had to be written — CSV import and export, saved board views,
 recently-viewed issues, mention receipts and registration invites. If you script
 `deleteJiraSprint` or `deleteJiraEpic`, they now take two calls; see
 [Upgrading](CHANGELOG.md#upgrading).
+
+1.2.1 is a patch: two fixes to the repo's own checks and docs, with no change to
+what an agent calls.
 
 ## Try it in one minute
 
@@ -343,13 +346,10 @@ Opt-in:
 | `deleteJiraIssueComment` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `restoreJiraIssueComment` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `updateJiraProject` | `JIRRABIT_MCP_ENABLE_MANAGE` |
-| `deleteJiraIssue` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `deleteJiraProject` | `DELETE /api/v1/projects/{key}/` |
 | `deleteJiraIssueLink` | `DELETE /api/v1/issues/{key}/links/{id}/` |
 | `deleteJiraIssueWorklog` | `DELETE /api/v1/issues/{key}/worklogs/{id}/` |
 | `deleteJiraIssueTemplate` | `JIRRABIT_MCP_ENABLE_DELETE` |
-| `deleteJiraSprint` | `JIRRABIT_MCP_ENABLE_DELETE` |
-| `deleteJiraEpic` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `deleteJiraLabel` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `deleteJiraCustomField` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `deleteJiraWebhook` | `JIRRABIT_MCP_ENABLE_DELETE` |
@@ -547,7 +547,7 @@ single static binary, or the container image.
 ## Changelog
 
 [`CHANGELOG.md`](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-format. The newest release is 1.2.0. Work that is not released yet sits under
+format. The newest release is 1.2.1. Work that is not released yet sits under
 [Unreleased](CHANGELOG.md#unreleased), and a section that has been published is
 never edited afterwards — two tests in `cmd/jirrabit-mcp` hold that line, because
 a changelog that over-claims still reads perfectly well.

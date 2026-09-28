@@ -13,6 +13,25 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-28
+
+### Fixed
+
+- **The opt-in exemption list in `cmd/flowtest` named eight tools when the delete
+  flag gates eighteen.** 1.2.0 added ten more opt-in tools and left the list where
+  it was, so it covered fewer tools than the flag did. Nothing failed, and that is
+  the problem: the check only looks for a tool name in the instructions or a
+  description, and the prose happened not to mention any of the ten. So the list
+  was a false negative waiting for the next person to write "prefer
+  `deleteJiraWebhook` with `active:false`" in a tool description, which reads as a
+  phantom-tool bug and is really an incomplete list. The comment above the list
+  already predicted this, and the fix is the one the comment describes: all
+  eighteen together, so the next opt-in tool is added in the same place.
+- **Three duplicate rows in the README's opt-in table.** `deleteJiraIssue`,
+  `deleteJiraSprint` and `deleteJiraEpic` were each listed twice, left over from
+  filling in tools that were already there. The table still rendered, and a
+  reader would read it as emphasis.
+
 ## [1.2.0] - 2026-09-28
 
 ### Upgrading
@@ -460,6 +479,7 @@ The first release. The image published on this tag is what
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
 [1.2.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.1...v1.2.0
+[1.2.1]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.2.0...v1.2.1
 [1.1.1]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rroblf01/jirrabit-mcp/releases/tag/v1.0.0

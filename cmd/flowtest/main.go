@@ -1534,13 +1534,24 @@ var toolNamePattern = regexp.MustCompile(
 // twice over: it is reversible, so a reader could reasonably expect it to be on
 // always, and the instructions have to say which flag it is behind.
 var optInTools = map[string]bool{
+	// Deletions and the two calls that are irreversible in practice.
+	"deleteJiraApiKey":        true,
+	"deleteJiraAttachment":    true,
+	"deleteJiraCustomField":   true,
+	"deleteJiraEpic":          true,
 	"deleteJiraIssue":         true,
-	"deleteJiraProject":       true,
-	"deleteJiraIssueWorklog":  true,
-	"deleteJiraIssueLink":     true,
-	"deleteJiraSprint":        true,
 	"deleteJiraIssueComment":  true,
+	"deleteJiraIssueLink":     true,
+	"deleteJiraIssueTemplate": true,
+	"deleteJiraIssueWorklog":  true,
+	"deleteJiraLabel":         true,
+	"deleteJiraProject":       true,
+	"deleteJiraSavedFilter":   true,
+	"deleteJiraSprint":        true,
+	"deleteJiraTeam":          true,
+	"deleteJiraWebhook":       true,
 	"restoreJiraIssueComment": true,
+	"removeJiraProjectMember": true,
 	"updateJiraProject":       true,
 }
 
