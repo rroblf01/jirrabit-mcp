@@ -38,20 +38,20 @@ type Sprint struct {
 
 // Issue mirrors `IssueOut`.
 //
-// The fields below `Project` are not yet part of jirrabit's `IssueOut`; they
-// are declared optional so that enriching the endpoint fills them in with no
-// change to this repository's tool code:
+// The fields below `Project` were written before jirrabit's `IssueOut` carried
+// them. Every one of them is now emitted, so none of them is optional any more
+// and a zero here means jirrabit really sent a zero.
 //
-//	Created     string   -> IssueOut.created
-//	Updated     string   -> IssueOut.updated
-//	StatusID    int      -> IssueOut.status_id (for status.id)
-//	StatusCategory string -> IssueOut.status_category (for status.statusCategory)
-//	PriorityID  int      -> IssueOut.priority_id
-//	TypeID      int      -> IssueOut.issue_type_id
-//	Labels      []string -> IssueOut.labels
-//	Parent      string   -> IssueOut.parent (issue key of the parent)
-//	SprintID    *int     -> IssueOut.sprint_id
-//	Components  []string -> IssueOut.components
+// The tags have to match `IssueOut` exactly, and they are not the names the
+// shapes in `shapes.go` want. `TypeID` in particular is the one field where the
+// two disagree: jirrabit calls it `issue_type_id` and nothing calls it `type_id`,
+// so a tag that guessed the shape's name instead of the API's left
+// `fields.issueType.id` permanently empty while every other field arrived.
+// A response is not proof of a tag, which is why there is a test for this.
+//
+// `Components` was the opposite mistake: it is declared here but jirrabit has no
+// `components` field on an issue at all, so it is omitted from the payload
+// rather than shipped as a confident empty list.
 type Issue struct {
 	ID          int    `json:"id"`
 	Key         string `json:"key"`
@@ -75,17 +75,25 @@ type Issue struct {
 	EstimateMinutes  *int    `json:"estimate_minutes"`
 	TimeSpentMinutes int     `json:"time_spent_minutes"`
 
-	// Optional enrichment; see the note above.
+	// These are all populated by IssueOut. A zero means jirrabit sent a zero.
 	Created        string   `json:"created"`
 	Updated        string   `json:"updated"`
 	StatusID       int      `json:"status_id"`
 	StatusCategory string   `json:"status_category"`
 	PriorityID     int      `json:"priority_id"`
-	TypeID         int      `json:"type_id"`
+	TypeID         int      `json:"issue_type_id"`
 	Labels         []string `json:"labels"`
 	Parent         string   `json:"parent"`
 	SprintID       *int     `json:"sprint_id"`
-	Components     []string `json:"components"`
+	Archived       bool     `json:"archived"`
+	// Epic was readable and unwritable in jirrabit for a long time, so it is
+	// carried here for the first time. Rendered as a named object rather than a
+	// bare string, to match priority and issuetype beside it.
+	Epic   string `json:"epic"`
+	EpicID int    `json:"epic_id"`
+	// TimeRemainingMinutes has no direct Jira field; it is the counterpart of
+	// timeoriginalestimate and is reported so an agent can see the gap.
+	TimeRemainingMinutes *int `json:"time_remaining_minutes"`
 }
 
 // Comment mirrors `CommentOut`.

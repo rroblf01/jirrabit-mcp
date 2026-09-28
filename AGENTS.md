@@ -159,6 +159,74 @@ from.
   `updateJiraSprint` does not close a sprint, because jirrabit's close carries
   unfinished issues to another sprint and no endpoint does only that; its
   description says so rather than letting an agent assume.
+- **An argument a tool accepts and ignores is worse than one it refuses.**
+  `strict.go` only catches arguments the schema does not *declare*, so a
+  declared-then-unused argument passes the check and is dropped by the handler:
+  four worklog arguments and two comment-visibility arguments did exactly that
+  for a release, returning success for a write that never happened. When jirrabit
+  cannot honour an Atlassian argument, either leave it out of the struct so
+  `strict.go` refuses it, or refuse it in the handler with a message naming the
+  API field that would have to exist. The second is better where the absence is
+  worth explaining, which is why comment visibility and worklog estimates are
+  handler guards and `fields`/`expand` are simply not declared.
+- **A unit test that builds a DTO by hand cannot see a wrong JSON tag.** The
+  shaper tests construct `jira.Issue{TypeID: 4}` and check it comes out the
+  other end, which passes whatever the tag says. `TestIssueDTOUnmarshalsJirrabitsFieldNames`
+  unmarshals a body shaped like jirrabit's `IssueOut` instead, and exists because
+  a tag guessed the response shape's field name rather than the API's and every
+  other test stayed green. The same applies to a schema the handler does not
+  bind: `listJiraSprints` advertised `SprintArgs` and read `ListSprintsArgs`, so
+  its own paging arguments were rejected as unknown. The registered schema and
+  the bound struct are two declarations of the same thing, and nothing but a test
+  compares them.
+- **Diff the endpoints against the tools, do not eyeball the tool list.** The
+  surface grew in releases, and a release adds what someone needed at the time.
+  Counting `NewTool(` against the `@api.` decorators found 118 endpoint methods
+  served by 86 tools, and 34 of the gaps were invisible from the tool side:
+  `createJiraProject` existed with no way to add a second person to the project it
+  created, `createJiraStatus` existed with no way to rename what it created, and
+  CSV import, saved board views, recently-viewed and mentions had neither an
+  endpoint nor a tool. The command is
+  `rg -o '@api\.(get|post|patch|put|delete)\("' jirrabit/api.py | wc -l`
+  against `rg -o 'NewTool\("' pkg/tools/*.go | wc -l`, and the two numbers are
+  only a rough guide — several tools share an endpoint and some endpoints are
+  internal previews.
+- **A unique column needs a pre-check, or a duplicate is a 500 with a traceback.**
+  `Team.slug` is unique; neither the create nor the rename looked, so both reached
+  the insert and came back as an `IntegrityError`. The web UI's form never showed
+  it, which is exactly why it survived — the API was the only way to reach it. The
+  same class of bug as the missing `max_length`, and the same fix: check before
+  the write and answer 409. The check has to allow a row to keep its own value, or
+  a description-only edit becomes impossible.
+- **An embedded struct is the bare type name.** `Confirmation Confirmation` is a
+  *named field*, not an embed, and the generated schema then exposes a property
+  called `Confirmation` — so `confirm` arrives as an unknown argument and
+  `strict.go` refuses the confirmation call of every two-step delete. The symptom
+  is a delete that previews and then cannot be confirmed, which reads as a
+  confirmation bug rather than a schema one. A gofmt pass will not fix it, and
+  neither will a `json:",inline"` tag, which this mcp-go version ignores.
+  `cmd/flowtest` catches it, because the second call is the check.
+- **Board placement is a set of endpoints, not a field.** `rank` is a card's
+  index inside its `(project, status)` column, and a column is a dense `0..n-1`
+  run. That makes it an invariant rather than a value, so there is deliberately
+  no endpoint that sets a rank: `moveJiraIssue` and `reorderJiraBoardColumn` go
+  through the same helpers the drag uses, which renumber the whole column. The
+  consequences are worth knowing before changing either. A *short* key list is
+  legal and means "these to the top, the rest keep their order", because a stale
+  view of the board sends one and refusing it would make the board unusable the
+  moment somebody else moved a card. And `bulkUpdateJiraBoard` refuses `delete`
+  with a pointer at `deleteJiraIssue` — the only action there that cannot be
+  undone should not be reachable from a call that takes a list, or the two-step
+  confirmation would be a speed bump with a way around it.
+- **A relation read from an async view is a query, and the cache is not
+  guaranteed.** `aget_or_create` returns the row it just created *with* the
+  objects it was handed cached, and an existing row with neither cached. A
+  response builder that reads `pin.issue.key` therefore works on the first call
+  and 500s on the second, which is a bug that only shows up on the retry. Three
+  of jirrabit's new endpoints had it; the fix is to `select_related` the paths a
+  builder reads, and to re-fetch after `aget_or_create` rather than trust what it
+  returned. Related: a schema field left with no default is a shape that cannot
+  be built, and `ty` is the only thing that notices.
 - **Discover the project key, never hardcode it.** flowtest and cmd/smoke read it
   from `listJiraProjects` (override with `-project`). flowtest originally
   asserted a literal "DEMO" and passed on the instance it was written against
@@ -209,6 +277,18 @@ from.
 ```bash
 go test ./...                                   # pure functions and the pool/SSRF guard
 go vet ./...
+gofmt -l .                                       # must print nothing
+
+# No jirrabit needed. Scans the instructions and every tool description for
+# tool-shaped names that are not registered, and prints the tool count.
+go run ./cmd/flowtest -server ./bin/jirrabit-mcp -phantoms-only
+
+# Everything. 245 checks, and it creates real data, so point it at a scratch
+# instance. Add JIRRABIT_MCP_ENABLE_DELETE=1 and _ENABLE_MANAGE=1 to exercise the
+# opt-in tools too; several checks assert the opposite answer when the flags are
+# off, so running it both ways is the point.
+JIRRABIT_URL=… JIRRABIT_API_KEY=… \
+  go run ./cmd/flowtest -server ./bin/jirrabit-mcp
 
 JIRRABIT_URL=… JIRRABIT_API_KEY=… \
   go run ./cmd/smoke -server ./bin/jirrabit-mcp  # end-to-end against a real jirrabit
@@ -216,6 +296,11 @@ JIRRABIT_URL=… JIRRABIT_API_KEY=… \
 go run ./cmd/multitenancy -server ./bin/jirrabit-mcp \
   -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
 ```
+
+`flowtest` twice in a row against a local Postgres can exhaust its connections
+(`max_connections=100`) and answer `sorry, too many clients already`. It is
+transient — wait a few seconds between runs. A check that fails once with that
+message and passes on a re-run is the database, not the code.
 
 `smoke` and `multitenancy` create data, so point them at a scratch instance.
 `multitenancy` deliberately runs with no default instance configured, which is

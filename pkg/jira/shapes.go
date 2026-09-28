@@ -3,6 +3,7 @@ package jira
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Shaper converts jirrabit's DTOs into the payload shapes a Jira-trained agent
@@ -40,10 +41,14 @@ type IssueFields struct {
 	Assignee    *UserResource    `json:"assignee,omitempty"`
 	Reporter    *UserResource    `json:"reporter,omitempty"`
 	Labels      []string         `json:"labels"`
-	Components  []string         `json:"components"`
 	DueDate     *string          `json:"duedate,omitempty"`
 	Created     string           `json:"created,omitempty"`
 	Updated     string           `json:"updated,omitempty"`
+	// RemainingEstimateSeconds is jirrabit's time_remaining_minutes in seconds.
+	// Jira keeps this client-side, so there is no standard field name; it is
+	// reported explicitly rather than omitted, because it is the number that
+	// tells an agent whether more work is expected.
+	RemainingEstimateSeconds int `json:"remainingEstimateSeconds,omitempty"`
 	// TimeSpent is "timeSpentSeconds" in Jira's API. jirrabit stores minutes.
 	TimeSpentSeconds int `json:"timespent,omitempty"`
 	// TimeOriginalEstimate maps to jirrabit's estimate_minutes.
@@ -52,6 +57,15 @@ type IssueFields struct {
 	StoryPoints *int `json:"customfield_10016,omitempty"`
 	// ParentKey is the parent's issue key, so an agent can walk subtasks up.
 	ParentKey string `json:"parentKey,omitempty"`
+	// Epic is a named reference, like priority and issuetype, rather than the
+	// bare string jirrabit sends. Atlassian's own field is an object and an agent
+	// trained on it would look for one.
+	Epic *NamedID `json:"epic,omitempty"`
+	// Archived mirrors jirrabit's own field. It is carried through rather than
+	// translated, because a client that has archived an issue needs to see that
+	// it is archived — the alternative was an agent that archived something and
+	// then read the issue back looking normal.
+	Archived bool `json:"archived"`
 	// SprintID mirrors Jira's sprint field for Agile-trained agents.
 	SprintID *int `json:"sprintId,omitempty"`
 }
@@ -145,18 +159,22 @@ func (s *Shaper) Issue(i Issue) IssueResource {
 		Assignee:    userFromUsername(i.Assignee),
 		Reporter:    userFromUsername(i.Reporter),
 		Labels:      nonNilStrings(i.Labels),
-		Components:  nonNilStrings(i.Components),
 		DueDate:     i.DueDate,
 		Created:     i.Created,
 		Updated:     i.Updated,
 		StoryPoints: i.StoryPoints,
 		ParentKey:   i.Parent,
+		Archived:    i.Archived,
+		Epic:        epicFromName(i.Epic, i.EpicID),
 		SprintID:    i.SprintID,
 	}
 	// Time is in minutes in jirrabit, seconds in Jira.
 	fields.TimeSpentSeconds = i.TimeSpentMinutes * 60
 	if i.EstimateMinutes != nil {
 		fields.TimeOriginalEstimate = *i.EstimateMinutes * 60
+	}
+	if i.TimeRemainingMinutes != nil {
+		fields.RemainingEstimateSeconds = *i.TimeRemainingMinutes * 60
 	}
 	if status := s.status(i); status != nil {
 		fields.Status = status
@@ -417,4 +435,14 @@ func (s *Shaper) Links(items []Link) []LinkResource {
 		out = append(out, s.Link(item))
 	}
 	return out
+}
+
+// epicFromName renders an epic reference, or nil when the issue has none. Omitting
+// it entirely is the honest shape: an agent checking "is this filed under an
+// epic" should see an absent field, not an object with an empty name.
+func epicFromName(name string, id int) *NamedID {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	return &NamedID{ID: intToID(id), Name: name}
 }

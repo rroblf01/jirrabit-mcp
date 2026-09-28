@@ -80,27 +80,32 @@ it.
                          their own right. The free-form fields object also
                          accepts them, under jirrabit's own names such as
                          status_id, but pass each thing once.
-  paging                 Only four tools page at all: listJiraProjects,
-                         listJiraIssueComments, listJiraIssueWorklogs and
-                         searchJiraIssuesUsingJql. Everywhere else the list is
-                         whatever it is and needs no paging.
-                         In those four, startAt is a 1-based PAGE NUMBER, not
+  paging                 These tools return {"total", "startAt", "maxResults",
+                         "nextPageToken", "values"} and may have more rows than
+                         one page holds: listJiraProjects, listJiraSprints,
+                         listJiraProjectIssues, listJiraUsers,
+                         listJiraIssueComments and listJiraIssueWorklogs.
+                         In all of them startAt is a 1-based PAGE NUMBER, not
                          the offset Atlassian's startAt means, so page 1 is the
-                         first page. searchJiraIssuesUsingJql is the exception:
-                         it has no startAt and pages with nextPageToken alone.
+                         first page. searchJiraIssuesUsingJql pages with
+                         nextPageToken alone and has no startAt.
+                         listJiraIssueWatchers is the exception: it returns a
+                         plain {"issueIdOrKey", "watchers"} with no paging,
+                         because an issue's watcher list is not a long list.
 
   Two things are not in the payload you might expect them in. An issue's detail
-  does not carry its worklogs; read them with listJiraIssueWorklogs. A project
-  is not fetched on its own, so use listJiraProjects and pick from it rather
-  than assuming a key.
+  does not carry its worklogs; read them with listJiraIssueWorklogs. And
+  getJiraIssue takes no 'fields' or 'expand' argument: jirrabit has no field
+  selection, so passing either is rejected rather than quietly ignored, and
+  getJiraIssue always returns the whole issue.
+
+  Every delete and updateJiraProject exist only if this server's operator
+  enabled them. A "tool not found" for one of those means it is off, not that you
+  spelled it wrong.
 
   Keep pages small. A search returning a hundred issues fills the context and
   leaves nothing to answer with, so ask for twenty at a time and follow
   nextPageToken.
-
-  deleteJiraIssue and updateJiraProject exist only if this server's operator
-  enabled them. A "tool not found" for those means they are off, not that you
-  spelled them wrong.
 
 READING A 404
 A 404 does not necessarily mean the key is wrong. jirrabit deliberately answers
@@ -141,6 +146,24 @@ listJiraStatuses first, then pass the id:
                      {"priorityId": 4, "statusId": 2, "sprintId": 1}
                      An unrecognised key is an error, not a silent no-op.
 
+Assignees are usernames, and you cannot guess one. If you were given a display
+name or a person's name rather than a username, call listJiraUsers with a query
+to match on username, display name or email, and use the 'username' it returns.
+With no arguments it lists everyone.
+
+To know who can actually be assigned in a given project, call
+listJiraProjectMembers with its key. That is the more precise list: jirrabit
+rejects an assignee who is not a member, so a user from listJiraUsers may be
+unassignable in this project, and the error says so without saying why.
+
+Epics and labels: listJiraEpics gives the ids for epicId. A label is a plain
+name — set it and it is created if it does not exist, so there is nothing to look
+up first. JQL filters on both, and both are now reported on the issue itself.
+
+Status changes: call listJiraTransitions with a statusId to learn what is
+allowed from it, rather than trying and reading a refusal. Each row says whether
+the workflow is open, in which case every status on the instance is reachable.
+
 Status changes are validated against the instance's workflow: a status that is
 not reachable from the current one is rejected with an explanatory error. That
 is a property of the instance, not a mistake on your part — read the error and
@@ -159,6 +182,7 @@ Comments, links and watchers:
     acting on, inwardIssueKey is the other end. Call listJiraIssueLinkTypes
     first rather than guessing a name.
   - watchJiraIssue defaults to watching; pass isWatching: false to unwatch.
+    listJiraIssueWatchers reads the current set.
 
 READING RESULTS
   - Descriptions and comments are stored as Markdown and come back as Atlassian
@@ -178,9 +202,77 @@ aggregation functions, dashboards, boards, versions, components, entity
 properties, attachments, remote links and changelogs. If a task needs one, say
 so rather than looking for a tool that is not in the list.
 
-The destructive tool deleteJiraIssue and the project-administration tool
-updateJiraProject are only present when the operator has enabled them. If they
-are absent, deletion is not something you can do through this server.`
+Ten Atlassian arguments are accepted nowhere at all, and sending one is
+rejected with an error naming what is missing rather than quietly ignored:
+  - getJiraIssue 'fields' and 'expand'. jirrabit returns the whole issue and has
+    no inlining, so there is nothing for either to select. There IS a changelog
+    — getJiraIssueChangelog, on its own call.
+  - addOrEditJiraIssueComment 'visibilityType' and 'visibilityValue'. jirrabit
+    has no groups or roles, so there is nothing to restrict a comment to.
+  - addOrEditJiraIssueWorklog 'started', 'newEstimate', 'adjustEstimate' and
+    'reduceBy'. A worklog is timestamped when it arrives, and an issue's
+    remaining estimate is read-only through the API.
+
+TWO LOGS, NOT INTERCHANGEABLE
+getJiraIssueChangelog is field-level: what a field was before and after. It is
+also INCOMPLETE — jirrabit writes a history row from only two places, a status
+transition and a worklog entry, so editing a summary or an assignee leaves
+nothing. Read an empty changelog as "this log does not cover that", never as
+"nothing changed".
+
+getJiraProjectActivity is signal-driven, so it has no gaps: it says who created,
+changed or deleted something and when, with no before/after. Use it for "who
+touched this", the changelog for "what did it say before". Activity is also
+purged by the operator's cron after 90 days by default.
+
+ADMINISTRATION
+The vocabulary tools — createJiraStatus, createJiraPriority, createJiraIssueType
+and their deletes — need a superuser, and jirrabit refuses to delete a status,
+priority or type while any issue still uses it. It will not strip the value from
+every issue that had it, so "delete it and fix the issues afterwards" is not a
+plan here: move the issues first.
+
+  - createJiraStatus with no 'order' appends the column. Passing 0 would put it at
+    the front and reorder a live board, which is why the argument is optional and
+    means what it says.
+  - updateJiraStatusTransitions REPLACES the list of reachable statuses. An empty
+    list does not mean 'nowhere': jirrabit reads it as an open workflow, so every
+    status becomes reachable. Clearing the list by accident makes a strict
+    workflow permissive, which is the opposite of 'restrict this'.
+  - listJiraWebhooks reports configuration that does not deliver anywhere. The
+    actions are in-process stubs that mostly log; the definition is real and the
+    last status is worth reading.
+
+DELETING ANYTHING
+deleteJiraIssue, deleteJiraProject, deleteJiraIssueWorklog, deleteJiraIssueLink
+and closeJiraSprint cannot be undone, so they take two calls. The first, with no
+'confirm' argument, changes nothing: it reports exactly what would be lost and
+returns a confirmationToken. Show that to the user, get their agreement, then
+call the same tool again with confirm set to that token.
+
+  - The token is bound to what the first call reported. If the target changed in
+    between, the second call refuses and tells you to look again, so a token can
+    never authorise something other than the thing the user agreed to.
+  - It is good for two minutes, and it is signed with the API key, so a token
+    from another instance or another key will not work.
+  - Closing a sprint moves every unfinished issue off it, to the sprint you name
+    or back to the backlog. The preview says how many. Done issues stay put.
+
+This cannot tell whether a human said yes, and you should not treat it as if it
+could: if you call a delete tool twice in a row without asking anyone, the delete
+happens. So ask. Present the preview, then wait for the user.
+
+Prefer the reversible tool when there is one. archiveJiraIssue hides an issue and
+keeps everything, and takes one call. deleteJiraIssueComment keeps the comment
+body and can be undone with restoreJiraIssueComment. The only thing that is
+genuinely gone is what the two-step tools remove.
+
+Every tool that deletes, plus deleteJiraIssueComment, restoreJiraIssueComment and
+updateJiraProject, is only present when the operator has enabled them. If they
+are absent, deletion is not something you can do through this server. Two steps
+is the rule for all of them, not just the ones that remove a whole issue: a sprint
+previews how many issues will drop out of it, a label how many issues will lose
+it, a team who will stop being notified. Show what the preview says and wait.`
 
 func main() {
 	transport := flag.String("transport", envOr("JIRRABIT_MCP_TRANSPORT", "stdio"),

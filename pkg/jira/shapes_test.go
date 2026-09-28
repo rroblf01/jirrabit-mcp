@@ -1,6 +1,7 @@
 package jira
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -57,6 +58,74 @@ func TestShaperIssueJiraShape(t *testing.T) {
 	}
 }
 
+// A hand-built Issue proves the shaper, never the wire. This one goes through
+// json.Unmarshal, because the bug it guards against lived entirely in a struct
+// tag: TypeID was tagged `type_id` while jirrabit emits `issue_type_id`, so
+// every other test in this file passed while `fields.issuetype.id` was
+// permanently "" on a real response. Building the struct by hand cannot see
+// that, and no amount of shaper coverage will.
+func TestIssueDTOUnmarshalsJirrabitsFieldNames(t *testing.T) {
+	// Field names and values as jirrabit's IssueOut actually emits them, so a
+	// change on the jirrabit side has to be made here deliberately.
+	body := `{
+		"id": 42, "key": "WEB-7", "summary": "Ship it",
+		"status": "In Progress", "status_id": 2, "status_category": "in_progress",
+		"priority": "High", "priority_id": 3,
+		"type": "Story", "issue_type_id": 4,
+		"project": "WEB", "labels": ["backend"],
+		"parent": "WEB-1", "sprint_id": 9
+	}`
+
+	var issue Issue
+	if err := json.Unmarshal([]byte(body), &issue); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Each of these was empty at some point while the response looked complete.
+	for _, tc := range []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"issue_type_id -> TypeID", issue.TypeID, 4},
+		{"status_id -> StatusID", issue.StatusID, 2},
+		{"priority_id -> PriorityID", issue.PriorityID, 3},
+		{"status_category", issue.StatusCategory, "in_progress"},
+		{"parent", issue.Parent, "WEB-1"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+	// SprintID is a pointer, so it cannot go in the table above.
+	if issue.SprintID == nil || *issue.SprintID != 9 {
+		t.Errorf("sprint_id = %v, want 9", issue.SprintID)
+	}
+	if len(issue.Labels) != 1 || issue.Labels[0] != "backend" {
+		t.Errorf("labels = %v", issue.Labels)
+	}
+
+	// And the end of the chain, since a correct tag is only worth anything if
+	// the value survives the shaper.
+	out := NewShaper("https://x").Issue(issue)
+	if out.Fields.IssueType == nil || out.Fields.IssueType.ID != "4" {
+		t.Errorf("fields.issuetype.id = %+v, want 4", out.Fields.IssueType)
+	}
+}
+
+// A field jirrabit does not have must be absent, not confidently empty.
+// Components shipped as [] on every issue, which reads to a model as "this
+// issue has no components" — an answer jirrabit never gave.
+func TestIssuePayloadOmitsComponents(t *testing.T) {
+	raw, err := json.Marshal(NewShaper("https://x").Issue(Issue{ID: 1, Key: "A-1"}))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if bytes.Contains(raw, []byte(`"components"`)) {
+		t.Errorf("payload claims a components field jirrabit does not have: %s", raw)
+	}
+}
+
 func TestShaperIssueUnassignedIsNullNotEmpty(t *testing.T) {
 	shaper := NewShaper("https://x")
 	out := shaper.Issue(Issue{ID: 1, Key: "A-1", Status: "To Do"})
@@ -66,10 +135,10 @@ func TestShaperIssueUnassignedIsNullNotEmpty(t *testing.T) {
 	if out.Fields.Reporter != nil {
 		t.Errorf("issue with no reporter produced %+v, want null", out.Fields.Reporter)
 	}
-	// Labels and components must serialise as [] rather than null, or a client
-	// iterating them has to handle nil.
-	if out.Fields.Labels == nil || out.Fields.Components == nil {
-		t.Error("labels/components are nil; they should be empty arrays")
+	// Labels must serialise as [] rather than null, or a client iterating them
+	// has to handle nil.
+	if out.Fields.Labels == nil {
+		t.Error("labels are nil; they should be an empty array")
 	}
 }
 

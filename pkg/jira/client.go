@@ -3,6 +3,9 @@ package jira
 import (
 	"bytes"
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -267,6 +270,80 @@ func (c *Client) Put(ctx context.Context, path string, body any, out any) error 
 // Delete performs a DELETE, discarding the body unless out is non-nil.
 func (c *Client) Delete(ctx context.Context, path string, out any) error {
 	return c.do(ctx, http.MethodDelete, path, nil, out)
+}
+
+// DeleteOnce is a DELETE that is never retried, for a call that has already
+// been confirmed and cannot be taken back.
+//
+// The retry loop above is right for reads and for writes that are safe to
+// repeat, and wrong here in a way that has already bitten. If jirrabit commits
+// the delete and the response is lost on the way back, the retry arrives at a
+// row that is gone, gets a 404 — which is not retryable — and reports a failure
+// for an operation that succeeded. An agent told its delete failed will either
+// retry forever or tell the user something untrue.
+//
+// Not retrying does not make that case clean, it makes it honest: the caller
+// gets one attempt and, on a transport error, an error that says the outcome is
+// unknown and how to find out.
+func (c *Client) DeleteOnce(ctx context.Context, path string, out any) error {
+	prev := c.maxRetries
+	c.maxRetries = 0
+	defer func() { c.maxRetries = prev }()
+	return c.do(ctx, http.MethodDelete, path, nil, out)
+}
+
+// PostOnce is the same idea for a POST, which is what a confirmed irreversible
+// call usually is. jirrabit has no DELETE for closing a sprint or restoring a
+// comment, so a "do it once" guarantee that only covered DELETE would leave the
+// most surprising operations in the product unprotected.
+func (c *Client) PostOnce(ctx context.Context, path string, body any, out any) error {
+	prev := c.maxRetries
+	c.maxRetries = 0
+	defer func() { c.maxRetries = prev }()
+	return c.do(ctx, http.MethodPost, path, body, out)
+}
+
+// ConfirmSecret returns the HMAC key used to sign confirmation tokens for this
+// instance.
+//
+// Derived from the API key with HKDF and a fixed context label, so:
+//
+//   - The plaintext key never leaves this package. The pool deliberately keys
+//     its cache on sha256(key) and logs nothing; a method returning the raw key
+//     would undo that discipline for the sake of a signature.
+//   - Every instance has a different secret, which is what keeps a token issued
+//     against one instance from being replayed against another. A shared
+//     multi-tenant server serves both, so a token that travelled would be a
+//     confirmed delete on somebody else's data.
+//   - Rotating or revoking the key invalidates every outstanding token, which is
+//     the right behaviour and falls out of the derivation for free.
+//
+// HKDF rather than a bare hash because the key is already a high-entropy token:
+// this separates it from any other use of the same bytes instead of reusing the
+// input as a key.
+func (c *Client) ConfirmSecret() []byte {
+	// crypto/hkdf from the standard library rather than x/crypto, because this
+	// repository takes one dependency and golang.org/x/crypto would be a second.
+	secret, err := hkdf.Key(sha256.New, []byte(c.apiKey), nil, "jirrabit-mcp/confirm/v1", sha256.Size)
+	if err != nil {
+		// Only fails on a length the hash cannot produce, and sha256.Size is its
+		// own, so this cannot happen. A zero key would be worse than a panic: it
+		// would accept unsigned tokens.
+		panic("jirrabit-mcp: hkdf failed: " + err.Error())
+	}
+	return secret
+}
+
+// ConfirmPrincipal returns a stable identifier for whoever holds this key, used
+// to bind a confirmation token to the caller that asked for it.
+//
+// The hash of the key rather than the username on purpose: two keys belonging to
+// the same person are two credentials, and a token issued to one should not
+// authorise a delete under the other. The username would also cost an extra
+// request per token, since the client does not cache it.
+func (c *Client) ConfirmPrincipal() string {
+	sum := sha256.Sum256([]byte(c.apiKey))
+	return hex.EncodeToString(sum[:16])
 }
 
 // --- page envelope ---------------------------------------------------------

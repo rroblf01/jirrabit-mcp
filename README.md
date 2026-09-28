@@ -3,6 +3,16 @@
 An MCP (Model Context Protocol) server that puts a [jirrabit](https://github.com/rroblf01/jirrabit)
 instance behind Atlassian's Jira tool vocabulary.
 
+**Current release: 1.2.0** ([changelog](CHANGELOG.md)) — 108 tools registered
+without any flag, 126 with both on.
+
+It closes the gap between jirrabit's REST API and this server: 34 tools that
+were the last thing missing, including the six whose endpoints did not exist at
+all and had to be written — CSV import and export, saved board views,
+recently-viewed issues, mention receipts and registration invites. If you script
+`deleteJiraSprint` or `deleteJiraEpic`, they now take two calls; see
+[Upgrading](CHANGELOG.md#upgrading).
+
 ## Try it in one minute
 
 A public instance is already running, against a public jirrabit you can also look
@@ -188,13 +198,41 @@ cannot, so project names are not leaked.
 
 ## Available tools
 
-Always on — 23 tools:
+Always on — 108 tools:
 
 | Tool | jirrabit endpoint |
 |---|---|
 | `getJiraCurrentUser` | `GET /api/v1/me/` |
 | `listJiraProjects` | `GET /api/v1/projects/` |
+| `getJiraProject` | `GET /api/v1/projects/{key}/` |
+| `listJiraProjectMembers` | `GET /api/v1/projects/{key}/members/` |
+| `listJiraEpics` | `GET /api/v1/projects/{key}/epics/` |
+| `createJiraEpic` | `POST /api/v1/projects/{key}/epics/` |
+| `listJiraTransitions` | `GET /api/v1/statuses/{id}/transitions/` |
+| `listJiraLabels` | `GET /api/v1/labels/` |
+| `createJiraSavedFilter` | `POST /api/v1/filters/` |
+| `listJiraProjectIssues` | `GET /api/v1/projects/{key}/issues/` |
 | `getJiraIssue` | `GET /api/v1/issues/{key}/` |
+| `getJiraIssueChangelog` | `GET /api/v1/issues/{key}/changelog/` |
+| `listJiraIssueAttachments` | `GET /api/v1/issues/{key}/attachments/` |
+| `getJiraAttachment` | `GET /api/v1/attachments/{id}/` |
+| `addJiraAttachment` | `POST /api/v1/issues/{key}/attachments/` |
+| `listJiraNotifications` | `GET /api/v1/notifications/` |
+| `markJiraNotificationsRead` | `POST /api/v1/notifications/read/` |
+| `listJiraTeams` | `GET /api/v1/teams/` |
+| `getJiraProjectActivity` | `GET /api/v1/projects/{key}/activity/` |
+| `createJiraStatus` | `POST /api/v1/statuses/` |
+| `updateJiraStatusTransitions` | `PATCH /api/v1/statuses/{id}/` |
+| `deleteJiraStatus` | `DELETE /api/v1/statuses/{id}/` |
+| `createJiraPriority` | `POST /api/v1/priorities/` |
+| `deleteJiraPriority` | `DELETE /api/v1/priorities/{id}/` |
+| `createJiraIssueType` | `POST /api/v1/issue-types/` |
+| `deleteJiraIssueType` | `DELETE /api/v1/issue-types/{id}/` |
+| `listJiraCustomFields` | `GET /api/v1/projects/{key}/custom-fields/` |
+| `getJiraIssueCustomFields` | `GET /api/v1/issues/{key}/custom-fields/` |
+| `setJiraIssueCustomFieldValues` | `PATCH /api/v1/issues/{key}/custom-fields/` |
+| `listJiraWebhooks` | `GET /api/v1/projects/{key}/webhooks/` |
+| `getJiraProjectWiki` | `GET /api/v1/projects/{key}/wiki/` |
 | `createJiraIssue` | `POST /api/v1/projects/{key}/issues/` |
 | `editJiraIssue` | `PATCH /api/v1/issues/{key}/` |
 | `transitionJiraIssue` | `PATCH /api/v1/issues/{key}/` with `status_id` |
@@ -206,20 +244,94 @@ Always on — 23 tools:
 | `listJiraIssueLinkTypes` | `GET /api/v1/link-types/` |
 | `createJiraIssueLink` | `POST /api/v1/issues/{key}/links/` |
 | `getJiraIssueLinks` | `GET /api/v1/issues/{key}/links/` |
+| `listJiraIssueWatchers` | `GET /api/v1/issues/{key}/watchers/` |
+| `watchJiraIssue` | `POST`/`DELETE /api/v1/issues/{key}/watchers/` |
 | `listJiraSprints` | `GET /api/v1/projects/{key}/sprints/` |
 | `getJiraSprint` | `GET /api/v1/sprints/{id}/` |
 | `createJiraSprint` | `POST /api/v1/projects/{key}/sprints/` |
 | `updateJiraSprint` | `PATCH /api/v1/sprints/{id}/` |
 | `listJiraSavedFilters` | `GET /api/v1/filters/` |
+| `listJiraUsers` | `GET /api/v1/users/search/`, query optional |
 | `getJiraUser` | `GET /api/v1/users/{id}/` or `GET /api/v1/users/search/?query=` |
-| `watchJiraIssue` | `POST`/`DELETE /api/v1/issues/{key}/watchers/` |
 | `listJiraStatuses` | `GET /api/v1/statuses/` |
 | `listJiraPriorities` | `GET /api/v1/priorities/` |
 | `listJiraIssueTypeMetadata` | `GET /api/v1/issue-types/` |
+| `moveJiraIssue` | `POST /api/v1/issues/{key}/move/` |
+| `reorderJiraBoardColumn` | `POST /api/v1/projects/{key}/board/reorder/` |
+| `bulkUpdateJiraBoard` | `POST /api/v1/projects/{key}/board/bulk-update/` |
+| `listJiraPins` | `GET /api/v1/pins/` |
+| `pinJiraItem` | `POST /api/v1/pins/` |
+| `unpinJiraItem` | `DELETE /api/v1/pins/{id}/` |
+| `getJiraIssueTimer` | `GET /api/v1/issues/{key}/timer/` |
+| `startJiraIssueTimer` | `POST /api/v1/issues/{key}/timer/start/` |
+| `stopJiraIssueTimer` | `POST /api/v1/issues/{key}/timer/stop/` |
+| `snoozeJiraIssueNotifications` | `POST /api/v1/issues/{key}/snooze/` |
+| `unsnoozeJiraIssueNotifications` | `DELETE /api/v1/issues/{key}/snooze/` |
+| `listJiraCommentReactions` | `GET /api/v1/issues/{key}/comments/{id}/reactions/` |
+| `reactToJiraComment` | `POST /api/v1/issues/{key}/comments/{id}/reactions/` |
+| `removeJiraCommentReaction` | `DELETE /api/v1/issues/{key}/comments/{id}/reactions/{emoji}/` |
+| `listJiraIssueBranchLinks` | `GET /api/v1/issues/{key}/branches/` |
+| `linkJiraBranchToIssue` | `POST /api/v1/issues/{key}/branches/` |
+| `unlinkJiraBranchFromIssue` | `DELETE /api/v1/issues/{key}/branches/{id}/` |
+| `listJiraIssueTemplates` | `GET /api/v1/projects/{key}/issue-templates/` |
+| `createJiraIssueTemplate` | `POST /api/v1/projects/{key}/issue-templates/` |
+| `exportJiraIssuesCsv` | `GET /api/v1/projects/{key}/csv-export/` |
+| `importJiraIssuesCsv` | `POST /api/v1/projects/{key}/csv-import/` |
+| `listJiraBoardViews` | `GET /api/v1/projects/{key}/board-views/` |
+| `saveJiraBoardView` | `POST /api/v1/projects/{key}/board-views/` |
+| `deleteJiraBoardView` | `DELETE /api/v1/projects/{key}/board-views/{id}/` |
+| `listJiraRecentIssues` | `GET /api/v1/recent/` |
+| `clearJiraRecentIssues` | `DELETE /api/v1/recent/` |
+| `listJiraCommentMentions` | `GET /api/v1/issues/{key}/comments/{id}/mentions/` |
+| `createJiraProject` | `POST /api/v1/projects/` |
+| `addJiraProjectMember` | `POST /api/v1/projects/{key}/members/` |
+| `updateJiraProjectMember` | `PATCH /api/v1/projects/{key}/members/{username}/` |
+| `getJiraEpic` | `GET /api/v1/projects/{key}/epics/{id}/` |
+| `updateJiraEpic` | `PATCH /api/v1/projects/{key}/epics/{id}/` |
+| `updateJiraStatus` | `PATCH /api/v1/statuses/{id}/` |
+| `updateJiraPriority` | `PATCH /api/v1/priorities/{id}/` |
+| `updateJiraIssueType` | `PATCH /api/v1/issue-types/{id}/` |
+| `updateJiraLabel` | `PATCH /api/v1/labels/{id}/` |
+| `createJiraCustomField` | `POST /api/v1/projects/{key}/custom-fields/` |
+| `updateJiraProjectWiki` | `PUT /api/v1/projects/{key}/wiki/` |
+| `createJiraWebhook` | `POST /api/v1/projects/{key}/webhooks/` |
+| `updateJiraWebhook` | `PATCH /api/v1/projects/{key}/webhooks/{id}/` |
+| `createJiraTeam` | `POST /api/v1/teams/` |
+| `updateJiraTeam` | `PATCH /api/v1/teams/{id}/` |
+| `listJiraApiKeys` | `GET /api/v1/api-keys/` |
+| `createJiraApiKey` | `POST /api/v1/api-keys/` |
+| `listJiraAdminUsers` | `GET /api/v1/admin/users/` |
+| `createJiraAdminUser` | `POST /api/v1/admin/users/` |
+| `updateJiraAdminUser` | `PATCH /api/v1/admin/users/{id}/` |
+| `listJiraInvites` | `GET /api/v1/admin/invites/` |
+| `createJiraInvite` | `POST /api/v1/admin/invites/` |
+| `revokeJiraInvite` | `DELETE /api/v1/admin/invites/{id}/` |
+| `getJiraCommentHistory` | `GET /api/v1/issues/{key}/comments/{id}/history/` |
+| `archiveJiraIssue` | `PATCH /api/v1/issues/{key}/` with `archived` |
+| `startJiraSprint` | `POST /api/v1/sprints/{id}/start/` |
+| `closeJiraSprint` | `POST /api/v1/sprints/{id}/close/` |
 
 The three metadata tools exist so an agent can turn a status, priority or issue
 type *name* into the numeric id that the write tools require, instead of
-guessing.
+guessing. `listJiraUsers` is the same idea for people: with no arguments it
+lists everyone, which is how an agent finds a username to assign when it was
+given a display name rather than one.
+
+`moveJiraIssue`, `reorderJiraBoardColumn` and `bulkUpdateJiraBoard` take a status
+or priority *name* and resolve it for you, so the same question an agent can
+always answer — "what are the statuses called here?" — does not have to be asked
+before every move. When the name is wrong the error lists the real ones.
+
+The board tools exist because setting a status was possible and *placing* a card
+was not: `rank`, the card's index inside its column, had no endpoint, so an issue
+an agent moved always landed at the end. They renumber the whole column rather
+than nudging a single card, because a column is a dense `0..n-1` run and that is
+an invariant rather than a value. `reorderJiraBoardColumn` accepts a shorter list
+than the column holds and reads it as "these to the top, the rest keep their
+order", which is what a stale view of the board sends. `bulkUpdateJiraBoard`
+reports the issues it skipped and why, and refuses `delete` outright: the one
+action there that cannot be undone should not be reachable from a call that takes
+a list. Use `deleteJiraIssue`, which previews and asks for confirmation.
 
 Opt-in:
 
@@ -227,12 +339,47 @@ Opt-in:
 |---|---|
 | `deleteJiraIssue` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `deleteJiraSprint` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraEpic` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraIssueComment` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `restoreJiraIssueComment` | `JIRRABIT_MCP_ENABLE_DELETE` |
 | `updateJiraProject` | `JIRRABIT_MCP_ENABLE_MANAGE` |
+| `deleteJiraIssue` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraProject` | `DELETE /api/v1/projects/{key}/` |
+| `deleteJiraIssueLink` | `DELETE /api/v1/issues/{key}/links/{id}/` |
+| `deleteJiraIssueWorklog` | `DELETE /api/v1/issues/{key}/worklogs/{id}/` |
+| `deleteJiraIssueTemplate` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraSprint` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraEpic` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraLabel` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraCustomField` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraWebhook` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraTeam` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraApiKey` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraAttachment` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `removeJiraProjectMember` | `JIRRABIT_MCP_ENABLE_DELETE` |
+| `deleteJiraSavedFilter` | `JIRRABIT_MCP_ENABLE_DELETE` |
 
-Still missing, because jirrabit exposes no endpoint for them: changelogs, boards,
-versions, components, entity properties, attachments, and editing an existing
-worklog. They will appear as the API grows; see the tool surface in
+With both flags on, 126 tools are registered.
+
+Every delete previews before it acts: the first call returns what would be
+removed, by kind and with real counts, plus a confirmation token, and changes
+nothing. That includes the ones whose subject row is not the risk — deleting a
+sprint says how many issues are about to drop out of it, deleting a label says how
+many issues will lose it, deleting a team names the people who stop being
+notified. Where a reversible option exists the preview names it: `archiveJiraIssue`
+over `deleteJiraIssue`, `active: false` over deleting a webhook, recreating over
+deleting a saved filter.
+
+Still missing, because jirrabit exposes no endpoint for them: boards as
+configurable entities, versions, components, entity properties, and editing an
+existing worklog. They will appear as the API grows; see the tool surface in
 [AGENTS.md](AGENTS.md).
+
+Ten Atlassian arguments are refused rather than ignored, because jirrabit cannot
+honour them and a silent no-op is worse than an error: `fields` and `expand` on
+`getJiraIssue`, `visibilityType` and `visibilityValue` on
+`addOrEditJiraIssueComment`, and `started`, `newEstimate`, `adjustEstimate` and
+`reduceBy` on `addOrEditJiraIssueWorklog`. Each error names what is missing.
 
 ### Multi-tenancy, verified
 
@@ -266,47 +413,23 @@ gain, but it is the one identifier in the payload that a caller cannot act on.
 ```bash
 go test ./...
 go vet ./...
+gofmt -l .                # must print nothing
 
-# The server's own prose has to match its own tool list. Needs no jirrabit, so
-# it runs in CI on every push.
+# The server's own prose has to match its own tool list, and it also prints the
+# count. Needs no jirrabit, so it runs in CI on every push. 110 tools registered
+# without a flag.
 go run ./cmd/flowtest -phantoms-only -server ./bin/jirrabit-mcp
 
 # End to end against a real jirrabit. Creates one issue, so use a scratch one.
 JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/smoke -server ./bin/jirrabit-mcp
 
-# Everything smoke does, plus 64 assertions about response shapes, the
+# Everything smoke does, plus every assertion about response shapes, the
 # write/read round trip, the error paths, multi-tenant isolation and the opt-in
-# gates. Add JIRRABIT_MCP_ENABLE_DELETE=1 JIRRABIT_MCP_ENABLE_MANAGE=1 to
-# exercise the destructive tools too (73 checks).
-JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/flowtest -server ./bin/jirrabit-mcp
-
-# Two instances over one connection, with project isolation and the
-# rejection paths (bad key, key without a URL, loopback URL).
-go run ./cmd/multitenancy -server ./bin/jirrabit-mcp \
-  -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
-
-# The cross-auth check, and the one to run before trusting a shared deployment.
-# Proves that A's key cannot read B, that a corrupted key never falls back to
-# the default instance, and that interleaved A,B,A,B calls on one connection
-# stay separated. Needs two instances and two keys, so it is not in CI.
-go run ./cmd/isolationtest -server ./bin/jirrabit-mcp \
-  -aURL … -aKey … -aProject … -bURL … -bKey … -bProject …
-
-# flowtest and cmd/smoke discover the project key from the instance, so they
-# work against any jirrabit and not only the demo. Pass -project to override.
-
-# Just list the tools a server registers.
-JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./internal/probe ./bin/jirrabit-mcp
-```
-
-## Verifying a deployment
-
-```bash
-go test ./...
-go vet ./...
-
-# End to end against a real jirrabit. Creates one issue, so use a scratch one.
-JIRRABIT_URL=… JIRRABIT_API_KEY=… go run ./cmd/smoke -server ./bin/jirrabit-mcp
+# gates. 245 checks with the flags on, which is the number that matters: several
+# of them assert the *opposite* answer when a flag is off, so run it both ways.
+JIRRABIT_URL=… JIRRABIT_API_KEY=… \
+  JIRRABIT_MCP_ENABLE_DELETE=1 JIRRABIT_MCP_ENABLE_MANAGE=1 \
+  go run ./cmd/flowtest -server ./bin/jirrabit-mcp
 
 # Two instances over one connection, with project isolation and the
 # rejection paths (bad key, key without a URL, loopback URL).
@@ -424,8 +547,10 @@ single static binary, or the container image.
 ## Changelog
 
 [`CHANGELOG.md`](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-format. Nothing is published yet, so everything currently sits under
-[Unreleased](CHANGELOG.md#unreleased).
+format. The newest release is 1.2.0. Work that is not released yet sits under
+[Unreleased](CHANGELOG.md#unreleased), and a section that has been published is
+never edited afterwards — two tests in `cmd/jirrabit-mcp` hold that line, because
+a changelog that over-claims still reads perfectly well.
 
 ## License
 

@@ -65,6 +65,20 @@ func registerIssueWriteTools(s *registrar, d Deps) {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithInputSchema[schema.AddOrEditWorkLogArgs](),
 	), addOrEditJiraIssueWorklog(d))
+
+	s.AddTool(mcp.NewTool("archiveJiraIssue",
+		mcp.WithDescription(
+			"Archive an issue, or bring a archived one back. Archiving hides it from the project list, from "+
+				"search and from JQL, and keeps everything: comments, worklogs, links, history. Prefer it to "+
+				"deleteJiraIssue whenever the work is finished rather than mistaken — it is one call instead of "+
+				"two, and it can be undone by passing archived: false."),
+		mcp.WithTitleAnnotation("Archive or unarchive issue"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithInputSchema[schema.ArchiveIssueArgs](),
+	), archiveJiraIssue(d))
 }
 
 func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -82,10 +96,7 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		// arguments too, but they were reachable through `fields` before that and
 		// an agent using the older spelling should keep working; the named
 		// argument simply wins if both are sent.
-		extra, err := normaliseFields(args.Fields, map[string]bool{
-			"summary": true, "description": true, "story_points": true,
-			"due_date": true, "issue_type_id": true, "assignee_id": true,
-		})
+		extra, err := normaliseFields(args.Fields, createProvidedNames(args))
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -131,13 +142,20 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		// A named argument wins over the same key inside `fields`: it was the
 		// more specific thing the caller said.
 		for key, value := range map[string]*int{
-			"priority_id": args.PriorityID,
-			"status_id":   args.StatusID,
-			"sprint_id":   args.SprintID,
+			"priority_id":      args.PriorityID,
+			"status_id":        args.StatusID,
+			"sprint_id":        args.SprintID,
+			"epic_id":          args.EpicID,
+			"estimate_minutes": args.EstimateMinutes,
 		} {
 			if value != nil {
 				payload[key] = *value
 			}
+		}
+		// A key, not an id, because that is what the caller has: the argument is
+		// named `parent` for the same reason the others take keys.
+		if args.Parent != "" {
+			payload["parent"] = args.Parent
 		}
 		for key, value := range extra {
 			payload[key] = value
@@ -164,10 +182,7 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 		// As on create: the long-standing named arguments are duplicates, the
 		// newly-named ids are accepted here and overridden if also given
 		// directly.
-		extra, err := normaliseFields(args.Fields, map[string]bool{
-			"summary": true, "description": true, "story_points": true,
-			"due_date": true, "assignee_id": true,
-		})
+		extra, err := normaliseFields(args.Fields, editProvidedNames(args))
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -217,13 +232,27 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 		}
 		// As on create: a named argument beats the same key inside `fields`.
 		for key, value := range map[string]*int{
-			"priority_id": args.PriorityID,
-			"status_id":   args.StatusID,
-			"sprint_id":   args.SprintID,
+			"priority_id":      args.PriorityID,
+			"status_id":        args.StatusID,
+			"sprint_id":        args.SprintID,
+			"epic_id":          args.EpicID,
+			"estimate_minutes": args.EstimateMinutes,
 		} {
 			if value != nil {
 				payload[key] = *value
 			}
+		}
+		// "" is the way to say "no parent", so this is a pointer on the Go side
+		// and an always-present string on the wire when the caller said anything
+		// at all. Sending nothing must not detach: an agent that edits a summary
+		// did not ask to orphan the issue.
+		if args.Parent != nil {
+			payload["parent"] = *args.Parent
+		}
+		// Always sent when non-nil, and nil when absent, so "no argument" and
+		// "an empty list" stay different: the second clears the labels.
+		if args.Labels != nil {
+			payload["labels"] = args.Labels
 		}
 		for key, value := range extra {
 			payload[key] = value
@@ -334,11 +363,29 @@ func addOrEditJiraIssueComment(d Deps) func(ctx context.Context, req mcp.CallToo
 		issuePath := fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey))
 
 		if args.CommentID != "" {
-			// jirrabit has no PATCH endpoint for comments yet; say which call
-			// is missing rather than reporting a 404 from a wrong path.
-			return mcp.NewToolResultErrorf(
-				"Editing an existing comment is not supported by jirrabit's API yet (it exposes no PATCH /api/v1/issues/%s/comments/{id}/). Delete-and-recreate is not offered either. To add a comment, omit commentId.",
-				args.IssueIDOrKey,
+			// Was refused here for a release, while jirrabit had no PATCH for
+			// comments. It does now, so this is a real edit and not a refusal.
+			log.Printf("[jirrabit-mcp addOrEditJiraIssueComment] edit %s on %s",
+				args.CommentID, args.IssueIDOrKey)
+			var comment jira.Comment
+			path := fmt.Sprintf("%scomments/%s/", issuePath, url.PathEscape(args.CommentID))
+			if err := client.Patch(ctx, path, map[string]string{"body": args.Body}, &comment); err != nil {
+				return toolError(err)
+			}
+			return jsonResult(shaper.Comment(comment))
+		}
+
+		// Not a pending API change: jirrabit has no groups or roles at all, so
+		// a restricted comment has nothing to be restricted to. Rejected rather
+		// than dropped, because an agent sending visibilityType is usually
+		// carrying it over from Atlassian's tool and would otherwise get a
+		// public comment back with no indication that it was public.
+		if args.VisibilityType != "" || args.VisibilityValue != "" {
+			return mcp.NewToolResultError(
+				"Comment visibility is not available here, so nothing was posted. jirrabit has no " +
+					"groups or roles, so there is nothing for visibilityType to restrict a comment to; " +
+					"its only equivalent is an internal-only comment, which jirrabit's API does not expose. " +
+					"To add an ordinary comment, drop visibilityType and visibilityValue.",
 			), nil
 		}
 
@@ -367,9 +414,36 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 		}
 
 		if args.WorklogID != "" {
+			// jirrabit has no PATCH for a worklog, and it is not worth faking:
+			// the row also feeds the issue's time totals, so an edit has to move
+			// those too, and only the create path does. deleteJiraIssueWorklog
+			// and a fresh addJiraIssue-with-time will get there.
 			return mcp.NewToolResultErrorf(
-				"Editing an existing worklog is not supported by jirrabit's API yet (it exposes no PATCH /api/v1/issues/%s/worklogs/{id}/). To log time, omit worklogId.",
+				"Editing an existing worklog is not supported by jirrabit's API yet (it exposes no PATCH "+
+					"/api/v1/issues/%s/worklogs/{id}/, and the edit would have to adjust the issue's time "+
+					"totals as well). To correct an entry, deleteJiraIssueWorklog removes it and this tool "+
+					"logs the replacement; to log time, omit worklogId.",
 				args.IssueIDOrKey,
+			), nil
+		}
+
+		// These four are declared because Atlassian's tool declares them, and
+		// they used to be accepted and thrown away: the payload below is
+		// minutes and comment, nothing else. An agent that said "log 2h against
+		// Tuesday, and drop the remaining estimate by 2h" got a success, an
+		// entry timestamped now, and an untouched estimate.
+		//
+		// jirrabit's WorkLogIn carries only minutes and comment, and its
+		// IssuePatch has no estimate field, so honouring them is an API change
+		// rather than a bug here. Naming the field that would have to exist is
+		// what turns "that did not work" into a decision the caller can make.
+		if dropped := droppedWorklogArgs(args); dropped != "" {
+			return mcp.NewToolResultErrorf(
+				"%s cannot be honoured by jirrabit's API yet, so nothing was logged. "+
+					"POST /api/v1/issues/%s/worklogs/ accepts only minutes and comment, "+
+					"and changing the remaining estimate needs estimate_minutes on IssuePatch, "+
+					"which is read-only today. To log the time now, drop %s.",
+				dropped, args.IssueIDOrKey, dropped,
 			), nil
 		}
 
@@ -394,6 +468,30 @@ func addOrEditJiraIssueWorklog(d Deps) func(ctx context.Context, req mcp.CallToo
 
 // worklogMinutes normalises the two ways a duration can arrive. jirrabit takes
 // whole minutes; Jira sends either seconds or a "2h 30m" string.
+// droppedWorklogArgs names the worklog arguments this server cannot honour, or
+// "" when the call is one jirrabit can actually store.
+//
+// Listed together and named in the message, because an agent that sent one of
+// them needs to know it was not stored: the alternative, accepting the call and
+// logging the time anyway, is how "reduce the estimate by 2h" came to mean
+// "logged 2h, estimate unchanged, no error".
+func droppedWorklogArgs(args schema.AddOrEditWorkLogArgs) string {
+	var dropped []string
+	if args.Started != "" {
+		dropped = append(dropped, "started")
+	}
+	if args.NewEstimate != "" {
+		dropped = append(dropped, "newEstimate")
+	}
+	if args.AdjustEstimate != "" {
+		dropped = append(dropped, "adjustEstimate")
+	}
+	if args.ReduceBy != "" {
+		dropped = append(dropped, "reduceBy")
+	}
+	return strings.Join(dropped, " and ")
+}
+
 func worklogMinutes(args schema.AddOrEditWorkLogArgs) (int, error) {
 	if args.TimeSpentSeconds != nil {
 		if *args.TimeSpentSeconds <= 0 {
@@ -412,4 +510,114 @@ func worklogMinutes(args schema.AddOrEditWorkLogArgs) (int, error) {
 		return minutes, nil
 	}
 	return 0, fmt.Errorf("provide timeSpentSeconds (or timeSpent in '2h 30m' form) to log time")
+}
+
+// --- reversible removal ---------------------------------------------------
+//
+// Deliberately not in the two-step group. Archiving a comment and archiving an
+// issue both keep the data and both have an inverse, so requiring a
+// confirmation token for them would be ceremony around an undo button. What
+// they do instead is say how to get the thing back, because a caller who
+// archived something under the impression it was deleted deserves to know
+// otherwise.
+
+func archiveJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.ArchiveIssueArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if args.IssueIDOrKey == "" {
+			return mcp.NewToolResultError("issueIdOrKey is required, e.g. WEB-1"), nil
+		}
+		client, shaper, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		archived := true
+		if args.Archived != nil {
+			archived = *args.Archived
+		}
+		verb := "archive"
+		if !archived {
+			verb = "unarchive"
+		}
+		log.Printf("[jirrabit-mcp archiveJiraIssue] %s %s on %s",
+			verb, args.IssueIDOrKey, client.BaseURL())
+
+		var issue jira.Issue
+		path := fmt.Sprintf("issues/%s/", url.PathEscape(args.IssueIDOrKey))
+		if err := client.Patch(ctx, path, map[string]any{"archived": archived}, &issue); err != nil {
+			return toolError(err)
+		}
+		shaped := shaper.Issue(issue)
+		result := map[string]any{
+			"issueIdOrKey": args.IssueIDOrKey,
+			"archived":     shaped.Fields.Archived,
+		}
+		if archived {
+			// The half of the answer people forget: nothing was lost, and this
+			// is the call that brings it back.
+			result["reversible"] = true
+			result["undo"] = "archiveJiraIssue with archived: false"
+		}
+		return jsonResult(result)
+	}
+}
+
+// createProvidedNames and editProvidedNames list only what the caller actually
+// passed, which is what normaliseFields needs to tell a real duplicate from an
+// argument that merely exists. A pointer is nil or it is not; a string is empty
+// or it is not. issue_type_id is special because two arguments can produce it and
+// either counts.
+func createProvidedNames(args schema.CreateIssueArgs) map[string]bool {
+	provided := map[string]bool{
+		"summary":       true,
+		"assignee_id":   args.Assignee != "",
+		"due_date":      args.DueDate != "",
+		"parent":        args.Parent != "",
+		"issue_type_id": args.IssueTypeID != nil || args.IssueTypeName != "",
+	}
+	if args.Description != "" {
+		provided["description"] = true
+	}
+	for key, value := range map[string]*int{
+		"story_points":     args.StoryPoints,
+		"priority_id":      args.PriorityID,
+		"status_id":        args.StatusID,
+		"sprint_id":        args.SprintID,
+		"epic_id":          args.EpicID,
+		"estimate_minutes": args.EstimateMinutes,
+	} {
+		if value != nil {
+			provided[key] = true
+		}
+	}
+	return provided
+}
+
+func editProvidedNames(args schema.EditIssueArgs) map[string]bool {
+	provided := map[string]bool{
+		"parent":      args.Parent != nil,
+		"assignee_id": args.Assignee != nil,
+		"due_date":    args.DueDate != nil,
+		"description": args.Description != nil,
+		"labels":      args.Labels != nil,
+	}
+	if args.Summary != nil {
+		provided["summary"] = true
+	}
+	for key, value := range map[string]*int{
+		"story_points":     args.StoryPoints,
+		"status_id":        args.StatusID,
+		"priority_id":      args.PriorityID,
+		"sprint_id":        args.SprintID,
+		"epic_id":          args.EpicID,
+		"estimate_minutes": args.EstimateMinutes,
+	} {
+		if value != nil {
+			provided[key] = true
+		}
+	}
+	return provided
 }

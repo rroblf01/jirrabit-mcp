@@ -40,6 +40,24 @@ func registerSavedFilterTools(s *registrar, d Deps) {
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithInputSchema[schema.GetUserArgs](),
 	), getJiraUser(d))
+
+	s.AddTool(mcp.NewTool("listJiraUsers",
+		mcp.WithDescription(
+			"List the users on this instance, with their usernames, display names and "+
+				"emails. Call it with no arguments to see everyone, or with a query to "+
+				"match on username, display name or email. This is how to find a username "+
+				"to assign: getJiraUser only answers for a name you already have, and "+
+				"neither listJiraProjects nor any other tool enumerates people.\n\n"+
+				"The list is not filtered by project membership, so a user here may not be "+
+				"assignable in a given project. jirrabit rejects an assignee who is not a "+
+				"member, and the error says so."),
+		mcp.WithTitleAnnotation("List users"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithInputSchema[schema.ListUsersArgs](),
+	), listJiraUsers(d))
 }
 
 // SavedFilter is jirrabit's stored-search payload. Field names already match
@@ -69,6 +87,50 @@ func listJiraSavedFilters(d Deps) func(ctx context.Context, req mcp.CallToolRequ
 			return toolError(err)
 		}
 		return jsonResult(map[string]any{"values": filters})
+	}
+}
+
+// listJiraUsers is the directory the rest of the tool set was missing.
+//
+// Every other way of naming a person needed the name first: getJiraUser rejects
+// an empty one, and resolveAssignee has nothing to resolve from. So an agent
+// that did not already know a username — which is the normal case when the
+// ticket says "assign this to Bob" and the instance calls him bob_dev — had no
+// way to find one, and assigning became a guess. jirrabit's search endpoint
+// lists everyone on an empty query and documents that as the picker case; this
+// is the tool that makes that reachable.
+func listJiraUsers(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args schema.ListUsersArgs
+		if err := req.BindArguments(&args); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		client, _, err := d.target(ctx, args)
+		if err != nil {
+			return toolError(err)
+		}
+		page, err := resolvePage(args.StartAt, args.NextPageToken)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		size := clampSize(args.MaxResults)
+		log.Printf("[jirrabit-mcp listJiraUsers] query=%q page=%d size=%d", args.Query, page, size)
+
+		query := "users/search/?"
+		if args.Query != "" {
+			query += "query=" + url.QueryEscape(args.Query) + "&"
+		}
+		items, meta, err := jira.List[jira.User](ctx, client, jira.WithPage(query, page, size))
+		if err != nil {
+			return toolError(err)
+		}
+		return jsonResult(paged{
+			Count:         meta.Count,
+			StartAt:       page,
+			MaxResults:    size,
+			NextPageToken: jira.NextToken(meta),
+			Values:        items,
+		})
 	}
 }
 
@@ -108,7 +170,8 @@ func getJiraUser(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*mc
 			}
 		}
 		return mcp.NewToolResultError(fmt.Sprintf(
-			"no user named %q on this instance. listJiraProjects does not list users; use the users page, or searchJiraIssuesUsingJql with `assignee = %q` to find who has work",
+			"no user named %q on this instance. Call listJiraUsers to see who is here, or "+
+				"searchJiraIssuesUsingJql with `assignee = %q` to find who already has work",
 			args.UserIDOrKey, args.UserIDOrKey,
 		)), nil
 	}
