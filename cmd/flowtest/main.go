@@ -203,10 +203,10 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 		"priorityId":  priorityID,
 	})
 	check("createJiraIssue", err == nil, errStr(err))
-	key := jsonString(created, "key")
+	key := nestedString(created, "issue", "key")
 	check("created issue has a key", strings.HasPrefix(key, projectKey+"-"), key)
 	check("created issue carries its summary",
-		nestedString(created, "fields", "summary") == "Flujo MCP: incidencia de verificacion",
+		nestedString(created, "issue", "fields", "summary") == "Flujo MCP: incidencia de verificacion",
 		truncate(created, 120))
 
 	fetched, err := call(ctx, session, "getJiraIssue", map[string]any{"issueIdOrKey": key})
@@ -522,6 +522,27 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 	check("and the estimate it was given comes back, in seconds like the rest of the payload",
 		err == nil && strings.Contains(child, `"timeoriginalestimate":28800`),
 		truncate(child, 240))
+
+	// Filing with context: one call files, explains and subscribes, instead of
+	// create + comment + watch.
+	withContext, err := call(ctx, session, "createJiraIssue", map[string]any{
+		"projectKey": projectKey, "summary": "flowtest: con contexto",
+		"issueTypeId": issueTypeID, "comment": "contexto inicial", "watch": true,
+	})
+	check("createJiraIssue files with comment and watch in one call",
+		err == nil && strings.Contains(withContext, "contexto inicial") &&
+			strings.Contains(withContext, "alice_pm"),
+		errStr(err)+truncate(withContext, 240))
+	check("a clean context create reports no partial errors",
+		!strings.Contains(withContext, "commentError") &&
+			!strings.Contains(withContext, "watchError"),
+		truncate(withContext, 200))
+	// The answer's issue is re-read after the follow-ups, so its counts
+	// describe the state the call left behind — including the comment this
+	// same call just added — rather than the create response.
+	check("the re-read issue counts the comment the call added",
+		strings.Contains(withContext, `"commentCount":1`),
+		truncate(withContext, 200))
 
 	// Who may be assigned: the missing half of the assignee validation.
 	members, err := call(ctx, session, "listJiraProjectMembers", map[string]any{
@@ -1298,6 +1319,17 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 	check("a no-match JQL returns an empty result, not an error", err == nil, errStr(err))
 	check("the empty result really is empty", strings.Contains(empty, "\"total\":0") ||
 		strings.Contains(empty, `"values":[]`), truncate(empty, 120))
+	mine, err := call(ctx, session, "searchJiraIssuesUsingJql", map[string]any{
+		"jql": fmt.Sprintf("project = %s AND assignee = currentUser()", projectKey),
+	})
+	check("assignee = currentUser() needs no identity lookup",
+		err == nil, errStr(err)+" "+truncate(mine, 140))
+	named, err := call(ctx, session, "searchJiraIssuesUsingJql", map[string]any{
+		"jql": fmt.Sprintf("project = %s AND assignee = alice_pm", projectKey),
+	})
+	check("currentUser() agrees with the explicit username",
+		err == nil && jsonInt(mine, "total") == jsonInt(named, "total"),
+		errStr(err)+" "+truncate(named, 140))
 
 	fmt.Println("\n[6] negative cases")
 	_, err = call(ctx, session, "getJiraIssue", map[string]any{"issueIdOrKey": "DEMO-99999"})
@@ -1464,7 +1496,7 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 		check("create carries the remaining estimate in seconds",
 			strings.Contains(doomed, `"remainingEstimateSeconds":5400`),
 			truncate(doomed, 200))
-		doomedKey := jsonString(doomed, "key")
+		doomedKey := nestedString(doomed, "issue", "key")
 
 		renamed, err := call(ctx, session, "updateJiraProject", map[string]any{
 			"projectKeyOrId": projectKey, "name": "DEMO (flowtest)",
@@ -1497,7 +1529,7 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 			"issueTypeId": issueTypeID,
 		})
 		check("created a second throwaway issue for the cascade", err == nil, errStr(err))
-		seededKey := jsonString(seeded, "key")
+		seededKey := nestedString(seeded, "issue", "key")
 		if _, err := call(ctx, session, "addOrEditJiraIssueComment", map[string]any{
 			"issueIdOrKey": seededKey, "body": "una comentario que se perderá",
 		}); err != nil {
@@ -1513,7 +1545,7 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 			"issueTypeId": issueTypeID,
 		})
 		if err == nil {
-			childKey := jsonString(withChildren, "key")
+			childKey := nestedString(withChildren, "issue", "key")
 			previewed, err := call(ctx, session, "deleteJiraIssue", map[string]any{
 				"issueIdOrKey": seededKey,
 			})
@@ -1541,7 +1573,7 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 			"issueTypeId": issueTypeID,
 		})
 		if err == nil {
-			archKey := jsonString(archivable, "key")
+			archKey := nestedString(archivable, "issue", "key")
 			archived, err := call(ctx, session, "archiveJiraIssue", map[string]any{
 				"issueIdOrKey": archKey,
 			})
@@ -1568,7 +1600,7 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 			"issueTypeId": issueTypeID,
 		})
 		if err == nil {
-			ctKey := jsonString(commentTarget, "key")
+			ctKey := nestedString(commentTarget, "issue", "key")
 			added, addErr := call(ctx, session, "addOrEditJiraIssueComment", map[string]any{
 				"issueIdOrKey": ctKey, "body": "cuerpo que debe sobrevivir",
 			})
@@ -1606,7 +1638,7 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 			"issueTypeId": issueTypeID,
 		})
 		if err == nil {
-			etKey := jsonString(editTarget, "key")
+			etKey := nestedString(editTarget, "issue", "key")
 			added, _ := call(ctx, session, "addOrEditJiraIssueComment", map[string]any{
 				"issueIdOrKey": etKey, "body": "primera versión",
 			})
@@ -1953,6 +1985,15 @@ func jsonString(payload, field string) string {
 	}
 	v, _ := decoded[field].(string)
 	return v
+}
+
+func jsonInt(payload, field string) int {
+	var decoded map[string]any
+	if json.Unmarshal([]byte(payload), &decoded) != nil {
+		return -1
+	}
+	v, _ := decoded[field].(float64)
+	return int(v)
 }
 
 func nestedString(payload string, path ...string) string {

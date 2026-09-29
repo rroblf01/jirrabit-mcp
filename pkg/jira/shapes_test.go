@@ -73,7 +73,8 @@ func TestIssueDTOUnmarshalsJirrabitsFieldNames(t *testing.T) {
 		"priority": "High", "priority_id": 3,
 		"type": "Story", "issue_type_id": 4,
 		"project": "WEB", "labels": ["backend"],
-		"parent": "WEB-1", "sprint_id": 9
+		"parent": "WEB-1", "sprint_id": 9,
+		"comment_count": 2, "worklog_count": 1
 	}`
 
 	var issue Issue
@@ -92,6 +93,8 @@ func TestIssueDTOUnmarshalsJirrabitsFieldNames(t *testing.T) {
 		{"priority_id -> PriorityID", issue.PriorityID, 3},
 		{"status_category", issue.StatusCategory, "in_progress"},
 		{"parent", issue.Parent, "WEB-1"},
+		{"comment_count", issue.CommentCount, 2},
+		{"worklog_count", issue.WorklogCount, 1},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
@@ -110,6 +113,10 @@ func TestIssueDTOUnmarshalsJirrabitsFieldNames(t *testing.T) {
 	out := NewShaper("https://x").Issue(issue)
 	if out.Fields.IssueType == nil || out.Fields.IssueType.ID != "4" {
 		t.Errorf("fields.issuetype.id = %+v, want 4", out.Fields.IssueType)
+	}
+	if out.Fields.CommentCount != 2 || out.Fields.WorklogCount != 1 {
+		t.Errorf("fields.commentCount/worklogCount = %d/%d, want 2/1",
+			out.Fields.CommentCount, out.Fields.WorklogCount)
 	}
 }
 

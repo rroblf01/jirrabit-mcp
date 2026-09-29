@@ -68,6 +68,11 @@ type IssueFields struct {
 	Archived bool `json:"archived"`
 	// SprintID mirrors Jira's sprint field for Agile-trained agents.
 	SprintID *int `json:"sprintId,omitempty"`
+	// How many comments and worklogs the issue has. Reported so a client
+	// deciding whether to list either can skip the call when the answer is
+	// zero, the way Jira's own comment.total does.
+	CommentCount int `json:"commentCount,omitempty"`
+	WorklogCount int `json:"worklogCount,omitempty"`
 }
 
 // NamedID is Jira's shape for a status, priority or issue type: an id and a
@@ -151,22 +156,24 @@ type SprintResource struct {
 // Issue renders a jirrabit issue as a Jira issue resource.
 func (s *Shaper) Issue(i Issue) IssueResource {
 	fields := IssueFields{
-		Summary:     i.Summary,
-		Description: ADFText(i.Description),
-		Priority:    &NamedID{ID: intToID(i.PriorityID), Name: i.Priority},
-		IssueType:   &NamedID{ID: intToID(i.TypeID), Name: i.Type},
-		Project:     &ProjectResource{Key: i.Project, Name: i.Project, ProjectTypeKey: "software"},
-		Assignee:    userFromUsername(i.Assignee),
-		Reporter:    userFromUsername(i.Reporter),
-		Labels:      nonNilStrings(i.Labels),
-		DueDate:     i.DueDate,
-		Created:     i.Created,
-		Updated:     i.Updated,
-		StoryPoints: i.StoryPoints,
-		ParentKey:   i.Parent,
-		Archived:    i.Archived,
-		Epic:        epicFromName(i.Epic, i.EpicID),
-		SprintID:    i.SprintID,
+		Summary:      i.Summary,
+		Description:  ADFText(i.Description),
+		Priority:     &NamedID{ID: intToID(i.PriorityID), Name: i.Priority},
+		IssueType:    &NamedID{ID: intToID(i.TypeID), Name: i.Type},
+		Project:      &ProjectResource{Key: i.Project, Name: i.Project, ProjectTypeKey: "software"},
+		Assignee:     userFromUsername(i.Assignee),
+		Reporter:     userFromUsername(i.Reporter),
+		Labels:       nonNilStrings(i.Labels),
+		DueDate:      i.DueDate,
+		Created:      i.Created,
+		Updated:      i.Updated,
+		StoryPoints:  i.StoryPoints,
+		ParentKey:    i.Parent,
+		Archived:     i.Archived,
+		Epic:         epicFromName(i.Epic, i.EpicID),
+		SprintID:     i.SprintID,
+		CommentCount: i.CommentCount,
+		WorklogCount: i.WorklogCount,
 	}
 	// Time is in minutes in jirrabit, seconds in Jira.
 	fields.TimeSpentSeconds = i.TimeSpentMinutes * 60

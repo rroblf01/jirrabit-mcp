@@ -65,11 +65,18 @@ type CreateIssueArgs struct {
 	// them: an agent trained on it will send parent and an estimate without being
 	// told this server accepts them, and putting them only in a free-form object
 	// is the same "nothing told the agent" problem 1.1.0 fixed for priorityId.
-	Parent          string         `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of, e.g. WEB-1. The parent must be in the same project"`
-	EpicID          *int           `json:"epicId,omitempty" jsonschema:"Epic to file this under, from listJiraEpics"`
-	EstimateMinutes *int           `json:"estimateMinutes,omitempty" jsonschema:"Estimate in minutes, e.g. 480 for eight hours. This is Jira's originalEstimate"`
-	TimeRemaining   *int           `json:"timeRemainingMinutes,omitempty" jsonschema:"Minutes estimated as remaining. Logging time decreases it automatically; set it here when the remainder is known up front rather than derived"`
-	Fields          map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, using jirrabit's own field names, e.g. {\"labels\": [\"backend\"]}"`
+	Parent          string `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of, e.g. WEB-1. The parent must be in the same project"`
+	EpicID          *int   `json:"epicId,omitempty" jsonschema:"Epic to file this under, from listJiraEpics"`
+	EstimateMinutes *int   `json:"estimateMinutes,omitempty" jsonschema:"Estimate in minutes, e.g. 480 for eight hours. This is Jira's originalEstimate"`
+	TimeRemaining   *int   `json:"timeRemainingMinutes,omitempty" jsonschema:"Minutes estimated as remaining. Logging time decreases it automatically; set it here when the remainder is known up front rather than derived"`
+	// Comment and Watch collapse the usual follow-ups into the create call.
+	// Separate arguments rather than jirrabit field names, because neither is
+	// a field on the issue: one is a row on another table, the other a
+	// membership. Putting them in `fields` would mean teaching normaliseFields
+	// two non-fields, and the next reader would wonder what table they land in.
+	Comment string         `json:"comment,omitempty" jsonschema:"Opening comment on the new issue, in Markdown. Saves a second addOrEditJiraIssueComment call"`
+	Watch   bool           `json:"watch,omitempty" jsonschema:"Follow the new issue as the caller. Saves a watchJiraIssue call; off by default so a create does not subscribe anyone who did not ask"`
+	Fields  map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, using jirrabit's own field names, e.g. {\"labels\": [\"backend\"]}"`
 }
 
 // EditIssueArgs is the input of editJiraIssue.

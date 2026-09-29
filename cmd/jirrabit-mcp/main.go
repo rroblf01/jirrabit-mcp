@@ -177,13 +177,31 @@ Time and dates:
     timeSpentSeconds. The result reports both timeSpent and timeSpentSeconds.
 
 Comments, links and watchers:
-  - addOrEditJiraIssueComment creates a comment. Passing commentId to edit one
-    is not supported yet and says so.
+  - addOrEditJiraIssueComment creates a comment, or edits one when passed
+    commentId.
   - createJiraIssueLink is directional: outwardIssueKey is the issue you are
     acting on, inwardIssueKey is the other end. Call listJiraIssueLinkTypes
     first rather than guessing a name.
   - watchJiraIssue defaults to watching; pass isWatching: false to unwatch.
     listJiraIssueWatchers reads the current set.
+
+DOING IT IN FEWER CALLS
+Independent reads belong in one block, not in sequence: getJiraIssue plus
+listJiraIssueComments, listJiraIssueWorklogs, listJiraIssueWatchers and
+getJiraIssueLinks touch nothing the others need, so send them together and wait
+once instead of four times. The issue itself carries commentCount and
+worklogCount — a zero there means the list call would come back empty, so skip
+it. And a create response is the issue as filed: only re-read it with
+getJiraIssue when you need server-computed state the answer does not carry.
+
+Two frequent flows, spelled out:
+  - "my open work": searchJiraIssuesUsingJql with
+    "assignee = currentUser() AND statusCategory != Done". One call, no
+    identity lookup first.
+  - "file it with context": createJiraIssue takes an opening comment and a
+    self-watch, so one call files, explains and subscribes. If only part of it
+    lands, the answer names the missing half instead of failing: the issue
+    already exists, and an error would invite a retry that files it twice.
 
 READING RESULTS
   - Descriptions and comments are stored as Markdown and come back as Atlassian
@@ -200,7 +218,7 @@ READING RESULTS
 NOT AVAILABLE HERE
 These have no jirrabit endpoint yet, so the tools are not registered: JQL
 aggregation functions, dashboards, boards, versions, components, entity
-properties, attachments, remote links and changelogs. If a task needs one, say
+properties and remote links. If a task needs one, say
 so rather than looking for a tool that is not in the list.
 
 Ten Atlassian arguments are accepted nowhere at all, and sending one is

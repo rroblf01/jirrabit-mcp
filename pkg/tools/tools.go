@@ -134,35 +134,40 @@ func toolError(err error) (*mcp.CallToolResult, error) {
 	if err == nil {
 		return nil, nil
 	}
+	return mcp.NewToolResultError(toolErrorText(err)), nil
+}
 
+// toolErrorText is the message half of toolError, for callers that report a
+// failure inside a larger success — a compound write that created the issue
+// but could not add the comment — rather than failing the whole call. Split
+// out so the two never disagree about what a jirrabit error means.
+func toolErrorText(err error) string {
 	var apiErr *jira.APIError
 	if errors.As(err, &apiErr) {
 		switch {
 		case apiErr.NotFound():
-			return mcp.NewToolResultErrorf(
+			return fmt.Sprintf(
 				"Not found: jirrabit returned 404 for %s %s. Check the key exists, and that the API key's owner is a member of the owning project — jirrabit hides projects the caller cannot see behind a 404 on purpose. (%s)",
 				apiErr.Method, apiErr.Path, apiErr.Detail,
-			), nil
+			)
 		case apiErr.Forbidden():
-			return mcp.NewToolResultErrorf(
+			return fmt.Sprintf(
 				"Permission denied: the API key's user lacks the required role (admin or lead) for %s %s. (%s)",
 				apiErr.Method, apiErr.Path, apiErr.Detail,
-			), nil
+			)
 		case apiErr.Unprocessable():
-			return mcp.NewToolResultErrorf(
+			return fmt.Sprintf(
 				"jirrabit rejected the request as invalid (400). %s", apiErr.Detail,
-			), nil
+			)
 		case apiErr.StatusCode == 401:
-			return mcp.NewToolResultError(
-				"jirrabit rejected the API key (401). Check JIRRABIT_API_KEY: it may be revoked, or it may not match this instance.",
-			), nil
+			return "jirrabit rejected the API key (401). Check JIRRABIT_API_KEY: it may be revoked, or it may not match this instance."
 		}
 	}
 
 	// A transport failure or an unhandled status: log the detail server-side
 	// and keep the message short enough to be read by a model.
 	log.Printf("[jirrabit-mcp] request failed: %v", err)
-	return mcp.NewToolResultErrorf("Request to jirrabit failed: %v", err), nil
+	return fmt.Sprintf("Request to jirrabit failed: %v", err)
 }
 
 // BoolEnv reads a boolean environment variable. Anything unrecognised is false,

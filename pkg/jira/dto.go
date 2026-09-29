@@ -94,6 +94,11 @@ type Issue struct {
 	// TimeRemainingMinutes has no direct Jira field; it is the counterpart of
 	// timeoriginalestimate and is reported so an agent can see the gap.
 	TimeRemainingMinutes *int `json:"time_remaining_minutes"`
+	// CommentCount and WorklogCount are read hints, not data: a zero means
+	// "nothing worth a second call", so a client deciding whether to list
+	// comments or worklogs does not spend a call to learn the list is empty.
+	CommentCount int `json:"comment_count"`
+	WorklogCount int `json:"worklog_count"`
 }
 
 // Comment mirrors `CommentOut`.

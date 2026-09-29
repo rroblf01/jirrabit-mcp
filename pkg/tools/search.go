@@ -21,7 +21,13 @@ func registerSearchTools(s *registrar, d Deps) {
 		mcp.WithDescription(
 			"Search Jira work items using JQL. Returns a page of results plus a "+
 				"nextPageToken: pass it back verbatim to get the next page, and do not "+
-				"parse it."),
+				"parse it.\n\n"+
+				"One precise query beats several exploratory ones: put every filter "+
+				"in a single JQL string rather than searching broadly and re-searching "+
+				"to narrow down. `assignee = currentUser()` and `reporter = "+
+				"currentUser()` mean the caller, so \"my open issues\" needs no "+
+				"prior identity lookup — do not call getJiraCurrentUser just to "+
+				"learn a username for a search."),
 		mcp.WithTitleAnnotation("Search issues with JQL"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),

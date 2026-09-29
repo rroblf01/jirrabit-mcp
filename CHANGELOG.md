@@ -13,6 +13,41 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-29
+
+### Upgrading
+
+- **`createJiraIssue` answers `{"issue": ...}` instead of the bare issue.**
+  The follow-ups needed somewhere to report partial failure, so the shaped
+  issue moved one level down; `comment`, `commentError`, `watchers` and
+  `watchError` appear only when requested. If you drive it from a script, read
+  the issue under the `issue` key. Agents reading semantically notice nothing.
+
+### Added
+
+- `currentUser()` in JQL `assignee`/`reporter` clauses, matching Jira: "my open
+  issues" is one `searchJiraIssuesUsingJql` call instead of an identity lookup
+  followed by a search. The search tool's description now says so, pointing at
+  a single precise query over exploratory fan-out.
+- `comment` and `watch` on `createJiraIssue`: filing with context is one call
+  instead of create plus comment plus watch, fanned out server-side. Partial
+  failure is reported honestly — the issue half plus a named missing half —
+  because failing the whole call would invite a retry that files the issue
+  twice. Watching other users was never possible (jirrabit only watches the
+  caller), so `watch` means self-watch.
+- `commentCount` and `worklogCount` on every issue payload, mirroring Jira's
+  embedded totals: a zero means the list call would come back empty, so
+  deciding whether to read comments or worklogs no longer costs a call. The
+  create answer is re-read after its follow-ups for the same reason — a create
+  response describing a state the follow-ups already moved past is the same lie
+  a cached read would be.
+- A "DOING IT IN FEWER CALLS" block in the server instructions: parallel
+  independent reads, the counts as skip signals, and the two frequent flows
+  spelled out. Plus two stale-instruction fixes the work surfaced: editing a
+  comment by id is supported (the prose still said it was refused), and
+  attachments and changelogs left the "not available" list (their tools have
+  been registered for a while).
+
 ## [1.5.0] - 2026-09-29
 
 ### Added
@@ -549,6 +584,7 @@ The first release. The image published on this tag is what
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.6.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.3.0...v1.4.0
 [1.2.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.1...v1.2.0

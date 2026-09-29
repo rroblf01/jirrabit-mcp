@@ -17,7 +17,13 @@ import (
 // jirrabit's current REST surface.
 func registerIssueWriteTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("createJiraIssue",
-		mcp.WithDescription("Create a new Jira work item."),
+		mcp.WithDescription(
+			"Create a new Jira work item. Pass comment for an opening comment and "+
+				"watch to follow it as the caller, so filing with context is one call "+
+				"instead of create plus comment plus watch. If the follow-up fails, "+
+				"the answer names which half is missing rather than failing the call: "+
+				"the issue already exists, and an error would invite a retry that "+
+				"files it twice."),
 		mcp.WithTitleAnnotation("Create issue"),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -191,7 +197,44 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		if err := client.Post(ctx, path, payload, &issue); err != nil {
 			return toolError(err)
 		}
-		return jsonResult(shaper.Issue(issue))
+		// An opening comment and a self-watch ride along when asked, so filing
+		// with context is one call instead of three. Each is best-effort past
+		// the create: if one fails, the answer says which half is missing
+		// rather than failing the whole call, because the issue already exists
+		// and an error would invite a retry that files it twice.
+		//
+		// The issue itself is re-read after the follow-ups, not shaped from
+		// the create response: anything the follow-ups changed server-side
+		// (watchers, counts) would otherwise come back stale, and a create
+		// answer describing a state the follow-ups already moved past is the
+		// same lie a cached read would be.
+		issuePath := fmt.Sprintf("issues/%s/", url.PathEscape(issue.Key))
+		result := map[string]any{}
+		if args.Comment != "" {
+			var comment jira.Comment
+			if err := client.Post(ctx, issuePath+"comments/", map[string]string{"body": args.Comment}, &comment); err != nil {
+				result["commentError"] = toolErrorText(err)
+			} else {
+				result["comment"] = shaper.Comment(comment)
+			}
+		}
+		if args.Watch {
+			var watchers []string
+			if err := client.Post(ctx, issuePath+"watchers/", nil, &watchers); err != nil {
+				result["watchError"] = toolErrorText(err)
+			} else {
+				result["watchers"] = watchers
+			}
+		}
+		if args.Comment != "" || args.Watch {
+			var fresh jira.Issue
+			if err := client.Get(ctx, issuePath, &fresh); err != nil {
+				return toolError(err)
+			}
+			issue = fresh
+		}
+		result["issue"] = shaper.Issue(issue)
+		return jsonResult(result)
 	}
 }
 
