@@ -39,8 +39,8 @@ per-project):
 }
 ```
 
-To stop passing credentials on every call, send them once as headers instead.
-`{env:VAR}` keeps the secret out of the file:
+To stop passing credentials on every call, send them once as headers instead,
+with the published demo token so the example works as pasted:
 
 ```json
 {
@@ -52,12 +52,15 @@ To stop passing credentials on every call, send them once as headers instead.
       "enabled": true,
       "headers": {
         "X-Jirrabit-Instance-Url": "https://jirrabit.ricardorobles.es",
-        "X-Jirrabit-Api-Key": "{env:JIRRABIT_API_KEY}"
+        "X-Jirrabit-Api-Key": "jirrabit-public-demo-token-2026-do-not-use"
       }
     }
   }
 }
 ```
+
+With your own key, swap the token for `{env:JIRRABIT_API_KEY}` so the secret
+lives in the environment instead of the file.
 
 Restart OpenCode. The tools show up as `jirrabit_getJiraIssue`,
 `jirrabit_searchJiraIssuesUsingJql`, and so on — OpenCode prefixes every tool
