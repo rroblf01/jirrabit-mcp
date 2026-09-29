@@ -68,6 +68,7 @@ type CreateIssueArgs struct {
 	Parent          string         `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of, e.g. WEB-1. The parent must be in the same project"`
 	EpicID          *int           `json:"epicId,omitempty" jsonschema:"Epic to file this under, from listJiraEpics"`
 	EstimateMinutes *int           `json:"estimateMinutes,omitempty" jsonschema:"Estimate in minutes, e.g. 480 for eight hours. This is Jira's originalEstimate"`
+	TimeRemaining   *int           `json:"timeRemainingMinutes,omitempty" jsonschema:"Minutes estimated as remaining. Logging time decreases it automatically; set it here when the remainder is known up front rather than derived"`
 	Fields          map[string]any `json:"fields,omitempty" jsonschema:"Additional fields as a free-form object, using jirrabit's own field names, e.g. {\"labels\": [\"backend\"]}"`
 }
 

@@ -1458,9 +1458,12 @@ func run(serverPath string, projectKeyFlag string, timeout time.Duration) error 
 		fmt.Println("\n[8b] the same tools, exercised because their flags are on")
 		doomed, err := call(ctx, session, "createJiraIssue", map[string]any{
 			"projectKey": projectKey, "summary": "flowtest: se va a borrar",
-			"issueTypeId": issueTypeID,
+			"issueTypeId": issueTypeID, "estimateMinutes": 120, "timeRemainingMinutes": 90,
 		})
 		check("created a throwaway issue to delete", err == nil, errStr(err))
+		check("create carries the remaining estimate in seconds",
+			strings.Contains(doomed, `"remainingEstimateSeconds":5400`),
+			truncate(doomed, 200))
 		doomedKey := jsonString(doomed, "key")
 
 		renamed, err := call(ctx, session, "updateJiraProject", map[string]any{

@@ -11,7 +11,20 @@ The version a running server reports — in the `initialize` response, which is
 how you tell two builds apart — is stamped at image build time from the release
 tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
-## [1.3.0]
+## [Unreleased]
+
+## [1.4.0] - 2026-09-29
+
+### Added
+
+- `timeRemainingMinutes` on `createJiraIssue`, mirroring `editJiraIssue`. The
+  Django create endpoint always accepted it, but the tool did not declare it,
+  so the strict checker refused it instead of silently dropping it — which is
+  exactly what the checker is for, and how the gap was found: a live run
+  against the previous deployment failed loudly rather than creating an issue
+  with the wrong remaining estimate.
+
+## [1.3.0] - 2026-09-28
 
 ### Added
 
@@ -522,6 +535,7 @@ The first release. The image published on this tag is what
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.4.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.3.0...v1.4.0
 [1.2.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.1...v1.2.0
 [1.2.1]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.2.0...v1.2.1
 [1.1.1]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.0...v1.1.1

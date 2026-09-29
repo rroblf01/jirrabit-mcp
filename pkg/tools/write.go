@@ -166,11 +166,12 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		// A named argument wins over the same key inside `fields`: it was the
 		// more specific thing the caller said.
 		for key, value := range map[string]*int{
-			"priority_id":      args.PriorityID,
-			"status_id":        args.StatusID,
-			"sprint_id":        args.SprintID,
-			"epic_id":          args.EpicID,
-			"estimate_minutes": args.EstimateMinutes,
+			"priority_id":            args.PriorityID,
+			"status_id":              args.StatusID,
+			"sprint_id":              args.SprintID,
+			"epic_id":                args.EpicID,
+			"estimate_minutes":       args.EstimateMinutes,
+			"time_remaining_minutes": args.TimeRemaining,
 		} {
 			if value != nil {
 				payload[key] = *value
@@ -660,12 +661,13 @@ func createProvidedNames(args schema.CreateIssueArgs) map[string]bool {
 		provided["description"] = true
 	}
 	for key, value := range map[string]*int{
-		"story_points":     args.StoryPoints,
-		"priority_id":      args.PriorityID,
-		"status_id":        args.StatusID,
-		"sprint_id":        args.SprintID,
-		"epic_id":          args.EpicID,
-		"estimate_minutes": args.EstimateMinutes,
+		"story_points":           args.StoryPoints,
+		"priority_id":            args.PriorityID,
+		"status_id":              args.StatusID,
+		"sprint_id":              args.SprintID,
+		"epic_id":                args.EpicID,
+		"estimate_minutes":       args.EstimateMinutes,
+		"time_remaining_minutes": args.TimeRemaining,
 	} {
 		if value != nil {
 			provided[key] = true
