@@ -13,6 +13,20 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-29
+
+### Added
+
+- Per-call credentials over HTTP headers: `X-Jirrabit-Instance-Url` and
+  `X-Jirrabit-Api-Key` are accepted as an alternative to `instanceUrl`/`apiKey`
+  on every tool call. Explicit arguments still win, so one client registration
+  can pin one instance via headers and still reach others per call; a header
+  URL gets exactly the caller-supplied treatment (SSRF guard, allowlist), never
+  the operator-default exemption. Two custom headers rather than
+  `Authorization: Bearer`, so neither half can be mistaken for an OAuth flow.
+  No headers exist over stdio, where the operator's environment stays the way
+  to name a default.
+
 ## [1.4.0] - 2026-09-29
 
 ### Added
@@ -24,7 +38,7 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
   against the previous deployment failed loudly rather than creating an issue
   with the wrong remaining estimate.
 
-## [1.3.0] - 2026-09-28
+## [1.3.0]
 
 ### Added
 
@@ -535,6 +549,7 @@ The first release. The image published on this tag is what
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.5.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.3.0...v1.4.0
 [1.2.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.1.1...v1.2.0
 [1.2.1]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.2.0...v1.2.1

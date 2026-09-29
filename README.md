@@ -19,20 +19,73 @@ what an agent calls.
 ## Try it in one minute
 
 A public instance is already running, against a public jirrabit you can also look
-at in a browser. No account, no install, no API key of your own:
+at in a browser. No account, no install, no API key of your own.
+
+### OpenCode
+
+In your `opencode.json` (globally at `~/.config/opencode/opencode.json`, or
+per-project):
 
 ```json
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "jirrabit": {
-      "type": "http",
-      "url": "https://jirrabit-mcp.ricardorobles.es/mcp"
+      "type": "remote",
+      "url": "https://jirrabit-mcp.ricardorobles.es/mcp",
+      "enabled": true
     }
   }
 }
 ```
 
-Then, on any tool call, pass the instance and the published demo token:
+To stop passing credentials on every call, send them once as headers instead.
+`{env:VAR}` keeps the secret out of the file:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "jirrabit": {
+      "type": "remote",
+      "url": "https://jirrabit-mcp.ricardorobles.es/mcp",
+      "enabled": true,
+      "headers": {
+        "X-Jirrabit-Instance-Url": "https://jirrabit.ricardorobles.es",
+        "X-Jirrabit-Api-Key": "{env:JIRRABIT_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Restart OpenCode. The tools show up as `jirrabit_getJiraIssue`,
+`jirrabit_searchJiraIssuesUsingJql`, and so on — OpenCode prefixes every tool
+with the server name.
+
+### Claude Code
+
+```bash
+claude mcp add --transport http jirrabit https://jirrabit-mcp.ricardorobles.es/mcp --scope user
+```
+
+`--scope user` makes it available in every project; without it, only in the
+current one. Confirm with `claude mcp list`, then just ask — the tools appear
+as `mcp__jirrabit__getJiraIssue` and friends.
+
+To stop passing credentials on every call, send them once as headers instead:
+
+```bash
+claude mcp add --transport http jirrabit https://jirrabit-mcp.ricardorobles.es/mcp --scope user \
+  --header "X-Jirrabit-Instance-Url: https://jirrabit.ricardorobles.es" \
+  --header "X-Jirrabit-Api-Key: jirrabit-public-demo-token-2026-do-not-use"
+```
+
+### Your first call (both clients)
+
+Without headers, every tool call carries its own jirrabit credentials — the
+server stores none, so there is nothing to configure and nothing to leak. Pass
+the instance and the published demo token on each call:
 
 ```json
 {
@@ -41,14 +94,24 @@ Then, on any tool call, pass the instance and the published demo token:
 }
 ```
 
-That is the whole setup, and it is the same for everyone who reads this file,
-because the demo is meant to be public. To see the data without an agent, open
-<https://jirrabit.ricardorobles.es> and log in as `alice_pm` / `demopass`.
+With the headers above, omit both and the call resolves to the same demo.
+Explicit arguments always win over headers, so one registration can still reach
+a second instance per call — headers pin nothing.
+
+Try asking your agent: *"Who am I on the demo jirrabit?"* (it calls
+`getJiraCurrentUser`), then *"List the open issues in the DEMO project."* To
+see the same data without an agent, open <https://jirrabit.ricardorobles.es>
+and log in as `alice_pm` / `demopass`.
 
 Against your own jirrabit, change `instanceUrl` and use a key from your
 profile's **API keys** page. Nothing about your instance is stored here: every
 call carries its own credentials, so one deployment serves as many instances as
 point at it.
+
+If the tools do not show up, restart the client first — both cache the tool
+list at startup. In Claude Code, `claude mcp list` shows each server's status.
+A "tool not found" for a `delete*` tool means the operator did not enable the
+delete flag on that deployment; reads and non-destructive writes always work.
 
 It registers the tool names, parameter names and payload shapes an agent already
 learned from the official Atlassian Jira MCP server — `getJiraIssue`,

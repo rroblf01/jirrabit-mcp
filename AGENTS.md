@@ -149,7 +149,16 @@ from.
   is not an allowlist.
 - **Clients are cached, keys are not logged.** The pool keys entries on
   `url|sha256(key)`, never the secret itself, and the cache key is swept on a TTL
-  so a rotated or forgotten key stops being used.
+  so a rotated or forgotten key stops being used. The same rule covers the
+  header path: `Deps.target` resolves credentials but the values must never
+  reach a log line, a cache key beyond the existing hash, or an error message.
+- **Credentials arrive three ways; the guards do not care which.** Tool
+  arguments, `X-Jirrabit-Instance-Url` / `X-Jirrabit-Api-Key` headers (HTTP
+  only, via `WithHTTPContextFunc`), and the operator's env default — in that
+  precedence order. A header URL is caller-supplied exactly like an argument
+  URL, so it gets the SSRF and allowlist checks, never the operator-default
+  exemption that skips them. If a new credential source is ever added, it plugs
+  into `Deps.target`, not into individual handlers.
 - **Delete and project-management tools are opt-in**, gated by
   `JIRRABIT_MCP_ENABLE_DELETE` / `JIRRABIT_MCP_ENABLE_MANAGE`, mirroring the
   reference server's behaviour. Visibility only — jirrabit still authorises.

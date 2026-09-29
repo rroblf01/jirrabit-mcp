@@ -414,6 +414,10 @@ func serveHTTP(srv *server.MCPServer, addr, path string) error {
 
 	httpSrv := server.NewStreamableHTTPServer(srv,
 		server.WithEndpointPath(path),
+		// Per-call credentials may arrive as HTTP headers instead of tool
+		// arguments (X-Jirrabit-Instance-Url / X-Jirrabit-Api-Key). Stashed
+		// per request for Deps.target; values are never logged.
+		server.WithHTTPContextFunc(tools.HTTPContextFunc),
 		// Stateless: every request is self-contained, so the server can be run
 		// behind a load balancer or scaled horizontally without sticky
 		// sessions, and a dropped connection loses nothing.

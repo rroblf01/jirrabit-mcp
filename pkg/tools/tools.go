@@ -31,10 +31,27 @@ type Deps struct {
 // target resolves the instance a call is about and returns a matching Shaper.
 // Handlers call this first and use the returned shaper rather than a shared one,
 // because `self` links must point at the instance the data came from.
+//
+// Credentials come from three places, in this order: the tool arguments, the
+// HTTP headers (X-Jirrabit-Instance-Url / X-Jirrabit-Api-Key, HTTP transport
+// only), and the pool's operator-configured default. Explicit arguments always
+// win, so a registration with headers can still reach a second instance per
+// call, and a header URL is caller-supplied exactly like an argument URL — it
+// goes through the same SSRF and allowlist checks, never the operator-default
+// exemption.
 func (d Deps) target(ctx context.Context, args interface {
 	GetTarget() (string, string)
 }) (*jira.Client, *jira.Shaper, error) {
 	url, key := args.GetTarget()
+	if url == "" || key == "" {
+		headerURL, headerKey := headerTarget(ctx)
+		if url == "" {
+			url = headerURL
+		}
+		if key == "" {
+			key = headerKey
+		}
+	}
 	client, err := d.Pool.Resolve(ctx, url, key)
 	if err != nil {
 		return nil, nil, err
