@@ -2,7 +2,7 @@ services:
   jirrabit-mcp:
     build: .
     image: jirrabit-mcp:latest
-    restart: unless-stopped
+    restart: "no"
     env_file:
       # Every setting is optional here. With JIRRABIT_URL and JIRRABIT_API_KEY
       # unset, this is a shared server: each caller names its own instance with
