@@ -144,28 +144,44 @@ func readChangelog() ([]byte, error) {
 
 var headerRE = regexp.MustCompile(`(?m)^## .+$`)
 
+// versionRE picks the version out of a release header, "## [1.3.0] - 2026-09-28"
+// giving "## [1.3.0]".
+var versionRE = regexp.MustCompile(`^## \[[^\]]+\]`)
+
+// releasedHeaders returns each released section's key: its header up to and
+// including the version, without the date.
+//
+// Keyed on the version rather than the whole line because the date is metadata
+// about the release, not its notes. v1.5.0 shipped with "## [1.3.0]" having lost
+// the date v1.4.0 published it with, so with whole-line keys every tag disagreed
+// with every other about that header and no CHANGELOG could pass. The notes
+// themselves are still compared byte for byte.
 func releasedHeaders(text string) []string {
 	var out []string
 	for _, m := range headerRE.FindAllString(text, -1) {
-		if !strings.Contains(m, "[Unreleased]") {
-			out = append(out, m)
+		if strings.Contains(m, "[Unreleased]") {
+			continue
+		}
+		if key := versionRE.FindString(m); key != "" {
+			out = append(out, key)
 		}
 	}
 	return out
 }
 
-// section returns the body of a "## ..." section, up to the next one.
+// section returns the body of the release section keyed by `key` (see
+// releasedHeaders), from the line after its header up to the next header.
 //
 // The reference links at the foot of the file are stripped first. They live
 // inside whichever section is last, so leaving them in would make every release
 // that adds a link -- which is every release, since each one needs a compare URL
 // -- look like an edit to the previous version's notes.
-func section(text, header string) (string, bool) {
-	i := strings.Index(text, header)
-	if i < 0 {
+func section(text, key string) (string, bool) {
+	header := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `(?:[ \t].*)?$`).FindStringIndex(text)
+	if header == nil {
 		return "", false
 	}
-	rest := text[i+len(header):]
+	rest := text[header[1]:]
 	if j := headerRE.FindStringIndex(rest); j != nil {
 		rest = rest[:j[0]]
 	}

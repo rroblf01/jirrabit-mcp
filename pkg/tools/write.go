@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -23,7 +24,9 @@ func registerIssueWriteTools(s *registrar, d Deps) {
 				"instead of create plus comment plus watch. If the follow-up fails, "+
 				"the answer names which half is missing rather than failing the call: "+
 				"the issue already exists, and an error would invite a retry that "+
-				"files it twice."),
+				"files it twice.\n\n"+
+				"Not for epics: in jirrabit an epic is its own entity, not an issue type. "+
+				"Create it with createJiraEpic and file its work here with epicId."),
 		mcp.WithTitleAnnotation("Create issue"),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -190,6 +193,12 @@ func createJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) 
 		}
 		for key, value := range extra {
 			payload[key] = value
+		}
+
+		if err := rejectEpicIssueType(ctx, client, payload); errors.Is(err, errEpicIssueType) {
+			return mcp.NewToolResultError(err.Error()), nil
+		} else if err != nil {
+			return toolError(err)
 		}
 
 		var issue jira.Issue
@@ -366,6 +375,12 @@ func editJiraIssue(d Deps) func(ctx context.Context, req mcp.CallToolRequest) (*
 		}
 		for key, value := range extra {
 			payload[key] = value
+		}
+
+		if err := rejectEpicIssueType(ctx, client, payload); errors.Is(err, errEpicIssueType) {
+			return mcp.NewToolResultError(err.Error()), nil
+		} else if err != nil {
+			return toolError(err)
 		}
 
 		var updated jira.Issue

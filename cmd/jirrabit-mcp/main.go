@@ -157,6 +157,15 @@ listJiraProjectMembers with its key. That is the more precise list: jirrabit
 rejects an assignee who is not a member, so a user from listJiraUsers may be
 unassignable in this project, and the error says so without saying why.
 
+Epics are not an issue type here, and grouping work takes one of two shapes:
+- An epic — a large piece of work several issues belong to. Create it with
+  createJiraEpic, then file each issue with createJiraIssue(epicId=...). Use
+  this whenever the user says "epic", as in Jira. createJiraIssue refuses the
+  "Epic" issue type, because such an issue shows up in no epic list.
+- A subtask — one issue broken into smaller steps. createJiraIssue(parent=KEY)
+  with the Subtask type. The parent is an issue key, never an epic.
+An issue can have both: a subtask of WEB-3 may also belong to epic 12.
+
 Epics and labels: listJiraEpics gives the ids for epicId. A label is a plain
 name — set it and it is created if it does not exist, so there is nothing to look
 up first. JQL filters on both, and both are now reported on the issue itself.
