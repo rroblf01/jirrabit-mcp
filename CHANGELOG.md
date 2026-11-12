@@ -13,6 +13,8 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-12
+
 ### Upgrading
 
 - **`createJiraIssue` and `editJiraIssue` refuse an issue type in the `epic`
@@ -627,6 +629,7 @@ The first release. The image published on this tag is what
   and nothing else.
 
 [Unreleased]: https://github.com/rroblf01/jirrabit-mcp/commits/main
+[1.7.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rroblf01/jirrabit-mcp/compare/v1.3.0...v1.4.0
