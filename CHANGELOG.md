@@ -57,6 +57,10 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
   spelled out on the `parent` and `epicId` arguments, and a `note` on
   epic-category types in `listJiraIssueTypeMetadata`, which is the list an
   agent reads right before `createJiraIssue`.
+- The epic `summary` on `createJiraEpic` and `updateJiraEpic` is documented as
+  Markdown, matching the issue description. jirrabit's epic page renders it as
+  Markdown from the same round of fixes; on an older jirrabit it shows as
+  plain text.
 
 ## [1.6.0] - 2026-09-29
 

@@ -450,7 +450,7 @@ type CreateEpicArgs struct {
 	Target
 	ProjectKeyOrID string `json:"projectKeyOrId" jsonschema:"Project key or numeric id, e.g. WEB"`
 	Name           string `json:"name" jsonschema:"Epic name, e.g. 'Checkout rewrite'"`
-	Summary        string `json:"summary,omitempty" jsonschema:"What the epic covers"`
+	Summary        string `json:"summary,omitempty" jsonschema:"What the epic covers, in Markdown"`
 	Color          string `json:"color,omitempty" jsonschema:"Hex colour, e.g. '#1e6fff'"`
 }
 
@@ -868,7 +868,7 @@ type UpdateEpicArgs struct {
 	ProjectKeyOrID string `json:"projectKeyOrId" jsonschema:"Project key or id, e.g. WEB"`
 	EpicID         int    `json:"epicId" jsonschema:"Numeric epic id, from listJiraEpics"`
 	Name           string `json:"name,omitempty" jsonschema:"New name"`
-	Summary        string `json:"summary,omitempty" jsonschema:"New summary"`
+	Summary        string `json:"summary,omitempty" jsonschema:"New summary, in Markdown. Replaces the whole text"`
 	Color          string `json:"color,omitempty" jsonschema:"New hex colour, e.g. '#dc2626'"`
 	Done           *bool  `json:"done,omitempty" jsonschema:"true to close the epic, false to reopen it"`
 }
