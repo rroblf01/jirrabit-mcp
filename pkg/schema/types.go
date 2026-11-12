@@ -53,7 +53,7 @@ type CreateIssueArgs struct {
 	ProjectKey    string `json:"projectKey" jsonschema:"Key of the project to create the issue in, e.g. WEB"`
 	Summary       string `json:"summary" jsonschema:"One-line issue title"`
 	Description   string `json:"description,omitempty" jsonschema:"Longer description, in Markdown"`
-	IssueTypeName string `json:"issueTypeName,omitempty" jsonschema:"Issue type by name, e.g. Task, Bug, Story"`
+	IssueTypeName string `json:"issueTypeName,omitempty" jsonschema:"Issue type by name, e.g. Task, Bug, Story. Not Epic: an epic is created with createJiraEpic and children join it through epicId"`
 	IssueTypeID   *int   `json:"issueTypeId,omitempty" jsonschema:"Issue type by ID; takes precedence over issueTypeName"`
 	Assignee      string `json:"assignee,omitempty" jsonschema:"Username to assign the issue to. Must belong to the project"`
 	DueDate       string `json:"dueDate,omitempty" jsonschema:"Due date as YYYY-MM-DD"`
@@ -65,8 +65,8 @@ type CreateIssueArgs struct {
 	// them: an agent trained on it will send parent and an estimate without being
 	// told this server accepts them, and putting them only in a free-form object
 	// is the same "nothing told the agent" problem 1.1.0 fixed for priorityId.
-	Parent          string `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of, e.g. WEB-1. The parent must be in the same project"`
-	EpicID          *int   `json:"epicId,omitempty" jsonschema:"Epic to file this under, from listJiraEpics"`
+	Parent          string `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of, e.g. WEB-1. The parent must be in the same project. For breaking one issue into smaller steps; to group issues under an epic use epicId instead"`
+	EpicID          *int   `json:"epicId,omitempty" jsonschema:"Epic to file this under: an id from listJiraEpics or createJiraEpic, never an issue key. This, not parent, is how an issue belongs to an epic"`
 	EstimateMinutes *int   `json:"estimateMinutes,omitempty" jsonschema:"Estimate in minutes, e.g. 480 for eight hours. This is Jira's originalEstimate"`
 	TimeRemaining   *int   `json:"timeRemainingMinutes,omitempty" jsonschema:"Minutes estimated as remaining. Logging time decreases it automatically; set it here when the remainder is known up front rather than derived"`
 	// Comment and Watch collapse the usual follow-ups into the create call.
@@ -91,11 +91,11 @@ type EditIssueArgs struct {
 	StatusID     *int    `json:"statusId,omitempty" jsonschema:"New status id, from listJiraStatuses. Validated against the issue's workflow, and a disallowed transition is rejected"`
 	PriorityID   *int    `json:"priorityId,omitempty" jsonschema:"New priority id, from listJiraPriorities"`
 	SprintID     *int    `json:"sprintId,omitempty" jsonschema:"Sprint to move the issue to, from listJiraSprints"`
-	EpicID       *int    `json:"epicId,omitempty" jsonschema:"Epic to file this under, from listJiraEpics"`
+	EpicID       *int    `json:"epicId,omitempty" jsonschema:"Epic to file this under: an id from listJiraEpics or createJiraEpic, never an issue key. This, not parent, is how an issue belongs to an epic"`
 	// Empty string is meaningful for Parent: it detaches a subtask. A pointer
 	// would also do it, but a string that reads as "no parent" is what an agent
 	// will actually send, and "" is the only way to say it.
-	Parent *string `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of. An empty string detaches it from its parent"`
+	Parent *string `json:"parent,omitempty" jsonschema:"Issue key to make this a subtask of. An empty string detaches it from its parent. For breaking one issue into smaller steps; to group issues under an epic use epicId instead"`
 	// Labels replaces the whole set, because that is what a PATCH means and
 	// because reading it as "add these" would leave no way to remove one.
 	Labels          []string       `json:"labels,omitempty" jsonschema:"Replace the issue's labels with this list. Names, not ids; unknown names are created. An empty list removes them all"`

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -107,4 +108,59 @@ func joinNames(types []issueTypeDTO) string {
 		return "none configured"
 	}
 	return strings.Join(names, ", ")
+}
+
+// rejectEpicIssueType refuses an issue whose type is in the "epic" category.
+//
+// jirrabit has two things called an epic. The one its project page, roadmap,
+// board filter and JQL `epic` read is a separate entity (createJiraEpic), and an
+// issue joins it through epic_id. The other is an issue type named "Epic" that
+// the seed data ships with. An agent that has driven real Jira files the epic
+// as an issue of that type, hangs the work under it with `parent`, and gets an
+// epic that appears in no epic list and groups nothing — with no error to say
+// so. Refusing it here costs one call and points at the right one.
+func rejectEpicIssueType(ctx context.Context, client *jira.Client, payload map[string]any) error {
+	id, ok := intValue(payload["issue_type_id"])
+	if !ok {
+		return nil
+	}
+	types, err := fetchIssueTypes(ctx, client)
+	if err != nil {
+		return err
+	}
+	return epicTypeError(types, id)
+}
+
+// errEpicIssueType marks the refusal as this server's own, so it is reported as
+// an argument mistake rather than as a failed request to jirrabit.
+var errEpicIssueType = errors.New("an epic is not an issue type in jirrabit")
+
+// epicTypeError is rejectEpicIssueType's decision, separate so it can be tested
+// without an instance.
+func epicTypeError(types []issueTypeDTO, id int) error {
+	for _, candidate := range types {
+		if candidate.ID == id && strings.EqualFold(candidate.Category, "epic") {
+			return fmt.Errorf(
+				"%w: an issue of type %q would appear in no epic list and group nothing. "+
+					"Create the epic with createJiraEpic, then file each child with "+
+					"createJiraIssue(epicId=<its id>) — not parent, which makes a subtask of an issue",
+				errEpicIssueType, candidate.Name)
+		}
+	}
+	return nil
+}
+
+// intValue reads an id that may have come from a typed argument (int) or from
+// the free-form `fields` object, where JSON decoding leaves a float64.
+func intValue(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case float64:
+		return int(v), v == float64(int(v))
+	case json.Number:
+		n, err := v.Int64()
+		return int(n), err == nil
+	}
+	return 0, false
 }

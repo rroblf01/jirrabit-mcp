@@ -101,7 +101,9 @@ func run(serverPath, projectKey string, timeout time.Duration) error {
 	if err != nil {
 		return err
 	}
-	key := jsonString(created, "key")
+	// Under "issue" since 1.6.0, when the create answer grew room to report a
+	// failed comment or watch next to the issue it did create.
+	key := nestedString(created, "issue", "key")
 	if key == "" {
 		return fmt.Errorf("createJiraIssue returned no key: %s", created)
 	}
@@ -114,7 +116,7 @@ func run(serverPath, projectKey string, timeout time.Duration) error {
 	if err != nil {
 		return err
 	}
-	otherKey := jsonString(other, "key")
+	otherKey := nestedString(other, "issue", "key")
 	fmt.Printf("  createJiraIssue (second)   %s\n", otherKey)
 
 	// 5. Read it back. Proves the Jira-shaped payload is well formed.
@@ -163,17 +165,18 @@ func run(serverPath, projectKey string, timeout time.Duration) error {
 		fmt.Printf("  addOrEditJiraIssueWorklog  %s (from \"1h 30m\")\n", spent)
 	}
 
-	// 9. The deliberately-unsupported path must fail with an explanation
-	// rather than a confusing 404.
+	// 9. Editing a comment that does not exist must fail with an explanation
+	// rather than a confusing 404. Editing by id is supported since 1.6.0;
+	// what this checks is the error path.
 	_, err = step("addOrEditJiraIssueComment", map[string]any{
 		"issueIdOrKey": key,
 		"body":         "should not be created",
 		"commentId":    "1",
 	})
 	if err != nil {
-		fmt.Printf("  edit comment (unsupported) reported cleanly: yes\n")
+		fmt.Printf("  edit unknown comment reported cleanly: yes\n")
 	} else {
-		fmt.Printf("  edit comment (unsupported) returned success; expected an explanation\n")
+		fmt.Printf("  edit unknown comment returned success; expected an explanation\n")
 	}
 
 	// 10. JQL, link types, a link, and watch/unwatch.

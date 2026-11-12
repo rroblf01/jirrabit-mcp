@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -18,6 +19,9 @@ type issueTypeDTO struct {
 	Category string `json:"category"`
 	Icon     string `json:"icon"`
 	Color    string `json:"color"`
+	// Note is set by this server, never by jirrabit: it tells the agent reading
+	// the list that a type is not what its name suggests.
+	Note string `json:"note,omitempty"`
 }
 
 type priorityDTO struct {
@@ -46,7 +50,8 @@ func registerMetadataTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("listJiraIssueTypeMetadata",
 		mcp.WithDescription(
 			"List the issue types this instance supports, with their ids. Call it before "+
-				"createJiraIssue, or before setting issueTypeId in an edit."),
+				"createJiraIssue, or before setting issueTypeId in an edit. An epic is not an issue "+
+				"type here: create it with createJiraEpic."),
 		mcp.WithTitleAnnotation("List issue types"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -92,7 +97,7 @@ func listJiraIssueTypeMetadata(d Deps) func(ctx context.Context, req mcp.CallToo
 		if err != nil {
 			return toolError(err)
 		}
-		return jsonResult(map[string]any{"values": items})
+		return jsonResult(map[string]any{"values": annotateIssueTypes(items)})
 	}
 }
 
@@ -122,4 +127,19 @@ func listJiraStatuses(d Deps) func(ctx context.Context, req mcp.CallToolRequest)
 		}
 		return jsonResult(map[string]any{"values": items})
 	}
+}
+
+// epicTypeNote is what an epic-category type carries in listJiraIssueTypeMetadata.
+// The list is what an agent reads right before createJiraIssue, so it is the
+// last chance to steer it to createJiraEpic before the call is refused.
+const epicTypeNote = "Not for creating epics: createJiraIssue refuses this type. " +
+	"Create the epic with createJiraEpic and file its issues with epicId"
+
+func annotateIssueTypes(items []issueTypeDTO) []issueTypeDTO {
+	for i := range items {
+		if strings.EqualFold(items[i].Category, "epic") {
+			items[i].Note = epicTypeNote
+		}
+	}
+	return items
 }

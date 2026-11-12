@@ -13,6 +13,49 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **`createJiraIssue` and `editJiraIssue` refuse an issue type in the `epic`
+  category.** They used to accept it, and the result was an issue with an epic
+  icon that appeared in no epic list, on no roadmap and in no `epic` filter,
+  with any work hung under it through `parent` grouped under nothing. The
+  refusal names the right call. If a script files epics this way, switch it to
+  `createJiraEpic` and file the children with `epicId`.
+
+### Fixed
+
+- Epics created through the MCP now show up in jirrabit. In jirrabit an epic is
+  its own entity, not an issue type, but the seed data ships an issue type named
+  "Epic" too, so an agent that has driven real Jira filed the epic with
+  `createJiraIssue(issueTypeName="Epic")` and its children with `parent`. Every
+  call succeeded and the project's epic list stayed empty. The type is now
+  refused on create and edit, however it arrives: `issueTypeName`,
+  `issueTypeId` or `fields.issue_type_id`.
+
+  An untyped `createJiraIssue` could still produce one, because jirrabit
+  defaulted a missing type to the first row, which on a seeded instance is
+  Epic. That half is fixed in jirrabit itself, which now defaults to Task; run
+  against an older jirrabit, pass a type explicitly.
+- `cmd/smoke` passes again. It read the created issue's key from the top level
+  of the answer, which moved under `issue` in 1.6.0, so it stopped at the first
+  create. Its comment-edit step was also labelled "unsupported", which stopped
+  being true in 1.6.0; it checks that an unknown `commentId` is reported
+  cleanly, and now says so.
+- The CHANGELOG test can pass again. v1.5.0 shipped with the `[1.3.0]` header
+  missing the date v1.4.0 had published it with, so the tags disagreed with
+  each other and no CHANGELOG satisfied them all. Released sections are now
+  matched by version rather than by the whole header line, their notes are
+  still compared byte for byte, and `[1.3.0]` has its date back.
+
+### Added
+
+- Guidance on epics versus subtasks wherever an agent looks before acting, not
+  only in the refusal: a decision rule in the server instructions, an explicit
+  "this is the only way to create an epic" on `createJiraEpic`, the difference
+  spelled out on the `parent` and `epicId` arguments, and a `note` on
+  epic-category types in `listJiraIssueTypeMetadata`, which is the list an
+  agent reads right before `createJiraIssue`.
+
 ## [1.6.0] - 2026-09-29
 
 ### Upgrading
@@ -73,7 +116,7 @@ tag. `cmd/jirrabit-mcp` falls back to `1.0.0` when built from a checkout.
   against the previous deployment failed loudly rather than creating an issue
   with the wrong remaining estimate.
 
-## [1.3.0]
+## [1.3.0] - 2026-09-28
 
 ### Added
 

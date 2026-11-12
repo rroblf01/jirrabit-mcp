@@ -37,7 +37,8 @@ func registerEpicTools(s *registrar, d Deps) {
 	s.AddTool(mcp.NewTool("listJiraEpics",
 		mcp.WithDescription(
 			"List the epics of a project. Call this to get the ids to pass as epicId, and to see which "+
-				"issues are grouped under which epic."),
+				"issues are grouped under which epic. Epics are not issues, so they never appear in issue "+
+				"searches or among the issue types."),
 		mcp.WithTitleAnnotation("List epics"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -47,7 +48,13 @@ func registerEpicTools(s *registrar, d Deps) {
 	), listJiraEpics(d))
 
 	s.AddTool(mcp.NewTool("createJiraEpic",
-		mcp.WithDescription("Create an epic in a project. Needs admin on the project."),
+		mcp.WithDescription(
+			"Create an epic in a project. Needs admin on the project.\n\n"+
+				"This is the only way to create an epic in jirrabit: an epic is its own entity, not an "+
+				"issue type, so do not use createJiraIssue with type Epic. Use it whenever the user asks "+
+				"for an epic, or for a large piece of work that several issues belong to. Then file each "+
+				"of those issues with createJiraIssue(epicId=<the id returned here>), or attach existing "+
+				"ones with editJiraIssue(epicId=...)."),
 		mcp.WithTitleAnnotation("Create epic"),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),

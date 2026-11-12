@@ -263,6 +263,7 @@ cannot, so project names are not leaked.
 | `cloudId` | Accepted and ignored |
 | Descriptions and comments | Stored as Markdown, returned as Atlassian Document Format. You send plain text |
 | Pagination | Offset-based underneath, presented as an opaque `nextPageToken`. Pass it back; do not parse it |
+| Epics | Their own entity, not an issue type. Create them with `createJiraEpic` and file issues under them with `epicId`; `parent` makes a subtask. `createJiraIssue` refuses the "Epic" issue type |
 | Availability | Not every Jira tool is registered, and a few report that the operation is unsupported. That means "not available here", not a bug |
 
 ## Available tools
